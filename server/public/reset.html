@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reset your Confero password</title>
+  <style>
+    :root {
+      --bg-1: #0e0b1a; --bg-2: #16111f; --text: #f4f2fb;
+      --muted: rgba(244,242,251,0.55); --accent: #7c5cff; --accent-2: #ff6bd6;
+      --border: rgba(255,255,255,0.1); --surface: rgba(255,255,255,0.05);
+      --danger: #ff5a6a; --success: #35d68a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+    body { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(130% 120% at 20% 0%, var(--bg-2), var(--bg-1) 70%); color: var(--text); padding: 24px; }
+    .card { width: 100%; max-width: 400px; background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 18px; padding: 34px 30px; box-shadow: 0 24px 60px rgba(0,0,0,0.5); backdrop-filter: blur(20px); }
+    .brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 6px; }
+    .mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 0 16px rgba(124,92,255,0.6); }
+    .brand-name { font-size: 18px; font-weight: 700; }
+    h1 { font-size: 15px; font-weight: 600; text-align: center; color: var(--muted); margin-bottom: 22px; }
+    label { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 7px; margin-top: 14px; }
+    input { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 14px; padding: 12px 14px; transition: 160ms; }
+    input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,0.18); }
+    .cta { width: 100%; margin-top: 22px; padding: 13px; border: none; border-radius: 11px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: white; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 6px 22px rgba(124,92,255,0.4); transition: 160ms; }
+    .cta:hover { filter: brightness(1.1); }
+    .cta:disabled { opacity: 0.6; cursor: default; }
+    .status { margin-top: 14px; font-size: 13px; text-align: center; min-height: 18px; }
+    .status.err { color: var(--danger); }
+    .status.ok { color: var(--success); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><span class="mark"></span><span class="brand-name">Confero</span></div>
+    <h1>Set a new password</h1>
+
+    <label for="pw1">New password</label>
+    <input id="pw1" type="password" placeholder="At least 8 characters" autocomplete="new-password" />
+    <label for="pw2">Confirm password</label>
+    <input id="pw2" type="password" placeholder="Re-enter password" autocomplete="new-password" />
+
+    <button id="submitBtn" class="cta">Update password</button>
+    <div id="status" class="status"></div>
+  </div>
+
+  <script>
+    const token = new URLSearchParams(location.search).get('token') || '';
+    const pw1 = document.getElementById('pw1');
+    const pw2 = document.getElementById('pw2');
+    const submitBtn = document.getElementById('submitBtn');
+    const statusEl = document.getElementById('status');
+    function setStatus(t, k) { statusEl.textContent = t; statusEl.className = `status ${k || ''}`; }
+
+    if (!token) setStatus('This reset link is missing its token. Request a new one.', 'err');
+
+    async function submit() {
+      if (!token) return;
+      if (pw1.value.length < 8) { setStatus('Password must be at least 8 characters.', 'err'); return; }
+      if (pw1.value !== pw2.value) { setStatus('Passwords don\'t match.', 'err'); return; }
+      submitBtn.disabled = true;
+      setStatus('Updating...', '');
+      try {
+        const res = await fetch('/api/auth/reset', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, password: pw1.value }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setStatus(data.error || 'Could not reset password.', 'err'); return; }
+        setStatus('Password updated. You can now sign in with your new password.', 'ok');
+      } catch (err) {
+        setStatus(`Network error: ${err.message}`, 'err');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+    submitBtn.addEventListener('click', submit);
+    pw2.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  </script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Welcome to Confero</title>
+  <link rel="stylesheet" href="onboarding.css" />
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="titlebar-brand">
+        <span class="brand-mark"></span>
+        <span class="brand-name">Confero</span>
+      </div>
+      <button id="closeBtn" class="titlebar-close" title="Close">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l12 12M14 2L2 14"/></svg>
+      </button>
+    </div>
+
+    <div class="glow glow-1"></div>
+    <div class="glow glow-2"></div>
+
+    <div class="stage">
+      <!-- Step 0: Welcome -->
+      <section class="step step-active" data-step="0">
+        <div class="hero-mark"></div>
+        <h1>Welcome to Confero</h1>
+        <p class="tagline">Your real-time meeting &amp; teaching co-pilot — listening, understanding, and quietly guiding you through every conversation.</p>
+        <ul class="feature-list">
+          <li><span class="feat-dot"></span> Live transcription of any call or lesson</li>
+          <li><span class="feat-dot"></span> Instant AI talking points, only you can see</li>
+          <li><span class="feat-dot"></span> Private overlay, hidden from screen shares</li>
+        </ul>
+        <button class="cta" data-next>Get started</button>
+      </section>
+
+      <!-- Step 1: Persona -->
+      <section class="step" data-step="1">
+        <h1>How will you use Confero?</h1>
+        <p class="tagline">We'll tune the assistant for you. You can change this anytime.</p>
+        <div id="personaList" class="persona-list"></div>
+        <div class="step-actions">
+          <button class="cta-ghost" data-back>Back</button>
+        </div>
+      </section>
+
+      <!-- Step 2: Sign in -->
+      <section class="step" data-step="2">
+        <h1>Sign in to Confero</h1>
+        <p class="tagline">Create your account or sign in. We'll open your browser for a quick, secure sign-in — no API keys, no setup.</p>
+        <div id="signinStatus" class="key-status"></div>
+        <div class="step-actions">
+          <button class="cta-ghost" data-back>Back</button>
+          <button class="cta" id="signinBtn">Sign in / Create account</button>
+        </div>
+      </section>
+
+      <!-- Step 3: Test microphone -->
+      <section class="step" data-step="3">
+        <h1>Let's check your mic</h1>
+        <p class="tagline">Say something out loud — Confero hears your side of the conversation through your microphone.</p>
+        <div class="mic-test">
+          <div class="mic-meter"><div id="micLevel" class="mic-level"></div></div>
+          <div id="micStatus" class="mic-status">Tap "Test microphone" and speak.</div>
+        </div>
+        <div class="step-actions">
+          <button class="cta-ghost" id="skipMicBtn">Skip</button>
+          <button class="cta" id="testMicBtn">Test microphone</button>
+        </div>
+      </section>
+
+      <!-- Step 4: Done -->
+      <section class="step" data-step="4">
+        <div class="check-mark">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6"/></svg>
+        </div>
+        <h1>You're all set</h1>
+        <p class="tagline">Confero is ready. Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> anytime to toggle stealth — only you ever see the overlay.</p>
+        <button class="cta" id="launchBtn">Launch Confero</button>
+      </section>
+    </div>
+
+    <div class="steps-indicator">
+      <span class="dot dot-active"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+    </div>
+  </div>
+  <script src="onboarding.js"></script>
+</body>
+</html>

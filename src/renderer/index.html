@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Confero</title>
+  <!-- Apply the saved theme before the body paints, to avoid a flash of the
+       default theme on launch. -->
+  <script>try{var t=localStorage.getItem('confero-theme');if(t&&t!=='default')document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- Header: brand · mode · history · settings · close -->
+    <div class="header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="24" height="24" rx="6.5" fill="url(#cfGrad)"/>
+            <path d="M16.8 8.1a5.4 5.4 0 1 0 0 7.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+            <circle cx="16.9" cy="12" r="1.7" fill="#fff"/>
+            <defs>
+              <linearGradient id="cfGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                <stop style="stop-color:var(--accent)"/>
+                <stop offset="1" style="stop-color:var(--accent-2)"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </span>
+        <span id="title">Confero</span>
+      </div>
+      <div class="header-right">
+        <button id="modeChip" class="mode-chip" title="Switch mode">
+          <span id="modeEmoji">🎓</span><span id="modeLabel">Tutoring</span>
+          <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
+        </button>
+        <button id="historyBtn" class="btn-icon" title="Past sessions">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.5V8l2.4 1.6"/></svg>
+        </button>
+        <button id="settingsBtn" class="btn-icon" title="Settings">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v1.6M8 12.9v1.6M14.5 8h-1.6M3.1 8H1.5M12.5 3.5l-1.1 1.1M4.6 11.3l-1.1 1.1M12.5 12.5l-1.1-1.1M4.6 4.7L3.5 3.5"/></svg>
+        </button>
+        <button id="closeBtn" class="btn-icon btn-icon-danger" title="Close">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l12 12M14 2L2 14"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mode picker -->
+    <div id="modeMenu" class="mode-menu hidden">
+      <div id="modeItemsList"></div>
+      <button id="modeContextEdit" class="mode-menu-footer">Session context…</button>
+    </div>
+
+    <div id="error-banner" class="error-banner" style="display:none;"></div>
+
+    <!-- Answer Stage: THE primary object while live. In focus mode it owns the
+         window; transcript shrinks to the one-line ticker below it. -->
+    <div id="answerStage" class="answer-stage hidden">
+      <div id="dockTip" class="dock-tip hidden">
+        <span>Tip: drag Confero right under your webcam — glancing here looks like eye contact.</span>
+        <button id="dockTipClose" class="close-btn" title="Dismiss">&times;</button>
+      </div>
+      <!-- Sticky top row: question + rephrase, always visible without scrolling
+           (a live interview gives you no time to scroll for the button). -->
+      <div class="stage-top">
+        <div id="stageQ" class="stage-q"></div>
+        <span id="stageModel" class="stage-model hidden" title="Which model/API key produced this answer (testing only)"></span>
+        <button id="stageDiff" class="stage-diff hidden" title="Say the same thing, worded differently">↻ Differently</button>
+      </div>
+      <div id="stageNote" class="stage-note hidden"></div>
+      <!-- The answer: labeled bullets, the spoken words in bold — one clean list. -->
+      <div id="stageAnswer" class="stage-answer"></div>
+      <div class="stage-foot">
+        <span id="stageUpsellHint" class="stage-upsell hidden">Follow-up-aware answers are Pro →</span>
+        <span id="stageMeta" class="stage-meta"></span>
+      </div>
+      <div id="stageUpnext" class="stage-upnext hidden"></div>
+    </div>
+
+    <!-- One-line live ticker (focus mode): last thing said; tap to peek at the full feed -->
+    <button id="ticker" class="ticker" title="Show full transcript">
+      <span class="ticker-dot"></span>
+      <span id="tickerText">Listening…</span>
+      <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
+    </button>
+
+    <!-- Full panes (idle/review, or peeked during a live session) -->
+    <div id="zenHint" class="zen-hint"><span>Pick a mode, press <b>Start listening</b> — answers appear right here.</span></div>
+
+    <div class="pane-label pane-extra">Live transcript</div>
+    <div id="transcript-pane">
+      <div class="pane-empty" id="transcriptEmpty">Press <b>Start listening</b> and your conversation appears here.</div>
+    </div>
+    <div id="paneDivider" class="pane-divider pane-extra" title="Drag to resize"></div>
+    <div class="pane-label pane-extra">Suggestions</div>
+    <div id="suggestions-pane">
+      <div class="pane-empty" id="suggestionsEmpty">Quiet AI help shows up here — only you can see it.</div>
+    </div>
+
+    <!-- Testing-only model picker (hidden in production via SHOW_MODEL_BADGE).
+         Switch the model before or during a session, then compare via the badge. -->
+    <div id="modelBar" class="model-bar hidden">
+      <span class="mb-label">🧪 Test model</span>
+      <select id="modelPicker" class="mb-select">
+        <option value="">Auto (best available)</option>
+        <option value="gemini">Gemini Flash</option>
+        <option value="groq">Groq · Llama 3.3 70B</option>
+        <option value="mistral">Mistral Small</option>
+        <option value="openrouter">Qwen3 80B</option>
+        <option value="cohere">Cohere Command A</option>
+        <option value="github">GPT-4o-mini</option>
+      </select>
+    </div>
+
+    <!-- Action bar -->
+    <div class="action-bar">
+      <button id="startBtn" class="btn-cta">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2l11 6-11 6V2z"/></svg>
+        <span>Start listening</span>
+      </button>
+      <div id="activeActions" class="active-actions hidden">
+        <button id="helpNowBtn" class="btn-cta btn-help" title="Skip the wait and answer now (Ctrl+Shift+Space)">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z"/></svg>
+          <span>Answer now</span>
+        </button>
+        <button id="recapBtn" class="btn-sec" title="Recap the session so far">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 8a5 5 0 11-1.5-3.5M13 2v3h-3"/></svg>
+          <span>Recap</span>
+        </button>
+        <button id="stopBtn" class="btn-sec btn-stop" title="Stop listening">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1.5"/></svg>
+        </button>
+      </div>
+      <button id="clearBtn" class="btn-icon" title="Clear this session" style="display:none;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4h11M6 4V2.5h4V4M5 4l.5 9.5a1 1 0 001 1h3a1 1 0 001-1L11 4"/></svg>
+      </button>
+    </div>
+
+    <!-- Mock-interview consent: practice is welcome; live-interview use is not. -->
+    <div id="consentModal" class="modal-cover hidden">
+      <div class="gate-card">
+        <div id="consentAsk">
+          <h2>💼 Quick check</h2>
+          <p class="gate-sub">Mock interview mode is built for <b>practice</b> — rehearsals, mock interviews, self-training. Are you using it for a <b>real, live interview</b> right now?</p>
+          <button id="consentPractice" class="btn-cta"><span>No — it's practice</span></button>
+          <button id="consentLive" class="gate-skip">Yes — it's a live interview</button>
+        </div>
+        <div id="consentWarning" class="hidden">
+          <h2>Confero can't help with that</h2>
+          <p class="gate-sub">Using hidden AI answers in a real interview misrepresents your abilities to an employer — that's a line Confero won't help cross. Practice hard here instead; walk in prepared for real.</p>
+          <button id="consentExit" class="btn-cta"><span>Close Confero</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Past sessions -->
+    <div id="sessionsModal" class="modal-cover hidden">
+      <div class="gate-card sessions-card">
+        <div class="sessions-head">
+          <h2>Past sessions</h2>
+          <button id="sessionsClose" class="close-btn" title="Close">&times;</button>
+        </div>
+        <div id="sessionsList" class="sessions-list"></div>
+        <div id="sessionViewer" class="session-viewer hidden"></div>
+        <button id="sessionsBack" class="gate-skip hidden">← Back to list</button>
+      </div>
+    </div>
+
+    <!-- Session setup gate -->
+    <div id="sessionGate" class="modal-cover hidden">
+      <div class="gate-card">
+        <button id="gateClose" class="gate-x" title="Close">&times;</button>
+        <h2 id="gateTitle">Set up this Session</h2>
+        <p id="gateSub" class="gate-sub"></p>
+        <textarea id="gateContext" rows="4"></textarea>
+        <label class="gate-vocab-label">Names &amp; terms to spell right <span>— optional; common field jargon (RAG, KYC, Kubernetes…) is added automatically</span></label>
+        <input id="gateVocab" class="gate-vocab" type="text" placeholder="e.g. Fenergo, Priya Nair, Datadog" />
+        <div class="gate-doc">
+          <span id="gateDocName" class="gate-doc-name">No document attached</span>
+          <div class="gate-doc-actions">
+            <button id="gateDocRemove" class="gate-doc-x hidden" title="Remove document">&times;</button>
+            <button id="gateDocBtn">Attach resume / doc</button>
+          </div>
+        </div>
+        <button id="gateSave" class="btn-cta" disabled><span>Save &amp; continue</span></button>
+        <button id="gateSkip" class="gate-skip">Continue without context</button>
+        <button id="gateClearSaved" class="gate-clear hidden">⌫ Clear saved AI instructions &amp; hints</button>
+        <p class="gate-disclaimer">Without context, Confero answers from guesswork — answer quality is on you.</p>
+      </div>
+    </div>
+
+    <!-- Upsell -->
+    <div id="upsellModal" class="modal-cover hidden">
+      <div class="gate-card">
+        <h2>That's a Pro move</h2>
+        <p id="upsellMsg" class="gate-sub"></p>
+        <button id="upsellClose" class="btn-cta"><span>Got it</span></button>
+      </div>
+    </div>
+
+    <!-- Guardrail lockdown -->
+    <div id="guardrail-lock" class="guardrail-lock hidden">
+      <div class="lock-badge">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+      </div>
+      <h2>Confero is disabled</h2>
+      <p id="guardrail-msg">Proctoring software is running. Confero will not operate during a proctored exam.</p>
+    </div>
+
+    <!-- Settings panel -->
+    <div id="settings-panel" class="settings-panel hidden">
+      <div class="settings-header">
+        <span>Settings</span>
+        <button id="settingsCloseBtn" class="close-btn" title="Close">&times;</button>
+      </div>
+      <div class="settings-body">
+        <label class="settings-label">Theme</label>
+        <div id="themePicker" class="theme-picker">
+          <button class="theme-swatch" data-theme="default" title="Default"><span class="ts-dot" style="background:linear-gradient(135deg,#7c5cff,#ff6bd6)"></span>Default</button>
+          <button class="theme-swatch" data-theme="matrix" title="Matrix"><span class="ts-dot" style="background:linear-gradient(135deg,#001a0d,#39ff14)"></span>Matrix</button>
+        </div>
+
+        <label class="settings-label">Answer display</label>
+        <div class="answer-display-ctl">
+          <button id="fontDownBtn" class="ad-btn" title="Smaller">A&minus;</button>
+          <span id="fontSizeLabel" class="ad-size">15px</span>
+          <button id="fontUpBtn" class="ad-btn" title="Larger">A+</button>
+          <label class="ad-toggle"><input type="checkbox" id="boldToggle" checked /> Bold</label>
+        </div>
+
+        <label class="settings-label">Custom instructions (how should the assistant behave?)</label>
+        <textarea id="rawInstructionsInput" rows="3"
+          placeholder="e.g. focus on encouraging critical thinking, don't give direct answers, keep it short..."></textarea>
+        <div class="settings-actions">
+          <button id="generatePromptBtn">Generate</button>
+          <button id="savePromptBtn" disabled>Save</button>
+        </div>
+        <label class="settings-label">Generated system prompt (preview)</label>
+        <textarea id="generatedPromptPreview" rows="4" readonly></textarea>
+
+        <label class="settings-label">Vocabulary hints — names Whisper should spell right</label>
+        <p class="settings-hint">Common terms for your field are added automatically (RAG, KYC, Kubernetes…). Add rare proper nouns here — company, product, or people's names.</p>
+        <textarea id="vocabularyHintsInput" rows="2" placeholder="e.g. Fenergo, Priya Nair, Datadog..."></textarea>
+        <div class="settings-actions">
+          <button id="saveVocabularyBtn">Save hints</button>
+        </div>
+
+        <label id="documentLabel" class="settings-label">Background document (resume/bio/reference)</label>
+        <div id="documentEmptyState" class="document-empty">
+          <span>No document uploaded.</span>
+          <button id="uploadDocumentBtn">Upload document</button>
+        </div>
+        <div id="documentCard" class="document-card" style="display:none;">
+          <div class="document-card-header">
+            <div>
+              <div id="documentFileName" class="document-filename"></div>
+              <div id="documentUploadedAt" class="document-uploaded-at"></div>
+            </div>
+            <button id="removeDocumentBtn" class="close-btn" title="Remove document">&times;</button>
+          </div>
+          <div id="documentSummary" class="document-summary"></div>
+        </div>
+
+        <div id="settingsStatus" class="settings-status"></div>
+      </div>
+    </div>
+  </div>
+  <script src="vad/utteranceSegmenter.js"></script>
+  <script src="audioCapture.js"></script>
+  <script src="renderer.js"></script>
+  <script src="settingsPanel.js"></script>
+</body>
+</html>

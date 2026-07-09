@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in to Confero</title>
+  <style>
+    :root {
+      --bg-1: #0e0b1a; --bg-2: #16111f; --text: #f4f2fb;
+      --muted: rgba(244,242,251,0.55); --accent: #7c5cff; --accent-2: #ff6bd6;
+      --border: rgba(255,255,255,0.1); --surface: rgba(255,255,255,0.05);
+      --danger: #ff5a6a; --success: #35d68a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+    body {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(130% 120% at 20% 0%, var(--bg-2), var(--bg-1) 70%);
+      color: var(--text); padding: 24px;
+    }
+    .card {
+      width: 100%; max-width: 400px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border); border-radius: 18px;
+      padding: 34px 30px; box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+      backdrop-filter: blur(20px);
+    }
+    .brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 6px; }
+    .mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 0 16px rgba(124,92,255,0.6); }
+    .brand-name { font-size: 18px; font-weight: 700; }
+    h1 { font-size: 15px; font-weight: 600; text-align: center; color: var(--muted); margin-bottom: 22px; }
+
+    .social { display: flex; gap: 10px; margin-bottom: 18px; }
+    .social button {
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font-size: 13px; font-weight: 500; padding: 11px; cursor: pointer; transition: 160ms;
+      position: relative;
+    }
+    .social button:hover:not(:disabled) { background: rgba(255,255,255,0.09); }
+    .social button:disabled { opacity: 0.5; cursor: default; }
+    .soon {
+      position: absolute; top: -7px; right: -6px; font-size: 8px; font-weight: 700;
+      background: var(--accent); color: white; padding: 1px 5px; border-radius: 6px; letter-spacing: 0.03em;
+    }
+
+    .divider { display: flex; align-items: center; gap: 10px; margin: 4px 0 16px; color: var(--muted); font-size: 12px; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    label { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 7px; margin-top: 12px; }
+    input {
+      width: 100%; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px; padding: 12px 14px; transition: 160ms;
+    }
+    input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,0.18); }
+    .cta {
+      width: 100%; margin-top: 20px; padding: 13px; border: none; border-radius: 11px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: white;
+      font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 6px 22px rgba(124,92,255,0.4); transition: 160ms;
+    }
+    .cta:hover { filter: brightness(1.1); }
+    .cta:disabled { opacity: 0.6; cursor: default; }
+    .toggle { text-align: center; margin-top: 18px; font-size: 13px; color: var(--muted); }
+    .toggle a { color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer; }
+    .forgot { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--muted); text-decoration: none; cursor: pointer; }
+    .forgot:hover { color: var(--accent); }
+    .status { margin-top: 13px; font-size: 13px; text-align: center; min-height: 18px; }
+    .status.err { color: var(--danger); }
+    .status.ok { color: var(--success); }
+
+    .g-icon { width: 16px; height: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><span class="mark"></span><span class="brand-name">Confero</span></div>
+    <h1>Continue to Confero</h1>
+
+    <div class="social">
+      <button id="appleBtn" disabled>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11.2 8.5c0-1.4 1.1-2 1.2-2.1-.7-1-1.7-1.1-2.1-1.1-.9-.1-1.7.5-2.2.5s-1.1-.5-1.9-.5c-1 0-1.9.6-2.4 1.5-1 1.8-.3 4.4.7 5.9.5.7 1.1 1.5 1.9 1.5.7 0 1-.5 1.9-.5s1.1.5 1.9.5 1.3-.7 1.8-1.4c.6-.8.8-1.6.8-1.6s-1.5-.6-1.5-2.2zM9.8 4.3c.4-.5.7-1.2.6-1.9-.6 0-1.3.4-1.7.9-.4.4-.7 1.1-.6 1.8.7.1 1.3-.3 1.7-.8z"/></svg>
+        Apple<span class="soon">SOON</span>
+      </button>
+      <button id="googleBtn">
+        <svg class="g-icon" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.2-.2-1.8H9v3.4h4.8c-.2 1.1-.8 2-1.8 2.6v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.4z"/><path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3C2.4 15.9 5.5 18 9 18z"/><path fill="#FBBC05" d="M3.9 10.7c-.2-.5-.3-1.1-.3-1.7s.1-1.2.3-1.7V5H.9C.3 6.2 0 7.6 0 9s.3 2.8.9 4l3-2.3z"/><path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6C13.5.9 11.4 0 9 0 5.5 0 2.4 2.1.9 5l3 2.3C4.6 5.1 6.6 3.6 9 3.6z"/></svg>
+        Google
+      </button>
+    </div>
+
+    <div class="divider">or</div>
+
+    <label for="email">Email address</label>
+    <input id="email" type="email" placeholder="you@example.com" autocomplete="email" />
+
+    <div id="passwordField">
+      <label for="password">Password</label>
+      <input id="password" type="password" placeholder="At least 8 characters" autocomplete="current-password" />
+      <a id="forgotLink" class="forgot">Forgot password?</a>
+    </div>
+
+    <button id="submitBtn" class="cta">Continue</button>
+    <div id="status" class="status"></div>
+
+    <div class="toggle">
+      <span id="toggleText">New to Confero?</span>
+      <a id="toggleLink">Create an account</a>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const redirect = params.get('redirect') || '';
+    let mode = 'login';
+
+    const heading = document.querySelector('h1');
+    const toggleText = document.getElementById('toggleText');
+    const toggleLink = document.getElementById('toggleLink');
+    const submitBtn = document.getElementById('submitBtn');
+    const statusEl = document.getElementById('status');
+    const emailEl = document.getElementById('email');
+    const passwordEl = document.getElementById('password');
+    const passwordField = document.getElementById('passwordField');
+    const forgotLink = document.getElementById('forgotLink');
+    const googleBtn = document.getElementById('googleBtn');
+    const social = document.querySelector('.social');
+    const divider = document.querySelector('.divider');
+
+    function isSafeRedirect(url) { return /^http:\/\/(127\.0\.0\.1|localhost):\d+/.test(url); }
+    function setStatus(text, kind) { statusEl.textContent = text; statusEl.className = `status ${kind || ''}`; }
+
+    function setMode(next) {
+      mode = next;
+      const forgot = mode === 'forgot';
+      passwordField.style.display = forgot ? 'none' : '';
+      social.style.display = forgot ? 'none' : '';
+      divider.style.display = forgot ? 'none' : '';
+      heading.textContent = forgot ? 'Reset your password' : 'Continue to Confero';
+      submitBtn.textContent = forgot ? 'Send reset link' : (mode === 'login' ? 'Sign in' : 'Create account');
+      if (forgot) {
+        toggleText.textContent = 'Remembered it?';
+        toggleLink.textContent = 'Back to sign in';
+      } else {
+        toggleText.textContent = mode === 'login' ? 'New to Confero?' : 'Already have an account?';
+        toggleLink.textContent = mode === 'login' ? 'Create an account' : 'Sign in';
+      }
+      setStatus('');
+    }
+
+    toggleLink.addEventListener('click', () => {
+      if (mode === 'forgot') setMode('login');
+      else setMode(mode === 'login' ? 'signup' : 'login');
+    });
+    forgotLink.addEventListener('click', () => setMode('forgot'));
+
+    googleBtn.addEventListener('click', () => {
+      location.href = `/api/auth/google/start?redirect=${encodeURIComponent(redirect)}`;
+    });
+
+    async function submit() {
+      const email = emailEl.value.trim();
+      if (!email) { setStatus('Enter your email address.', 'err'); return; }
+      submitBtn.disabled = true;
+      setStatus('Working...', '');
+
+      try {
+        if (mode === 'forgot') {
+          await fetch('/api/auth/forgot', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+          });
+          setStatus('If an account exists for that email, a reset link is on its way.', 'ok');
+          return;
+        }
+
+        const password = passwordEl.value;
+        if (!password) { setStatus('Enter your password.', 'err'); return; }
+        const res = await fetch(`/api/auth/${mode === 'login' ? 'login' : 'signup'}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setStatus(data.error || 'Something went wrong.', 'err'); return; }
+        setStatus('Success! Returning to the app...', 'ok');
+        if (redirect && isSafeRedirect(redirect)) location.href = `${redirect}?token=${encodeURIComponent(data.token)}`;
+        else setStatus('Signed in. You can close this window.', 'ok');
+      } catch (err) {
+        setStatus(`Network error: ${err.message}`, 'err');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+    submitBtn.addEventListener('click', submit);
+    passwordEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    emailEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && mode === 'forgot') submit(); });
+
+    if (params.get('error')) setStatus(decodeURIComponent(params.get('error')), 'err');
+  </script>
+</body>
+</html>

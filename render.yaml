@@ -1,0 +1,53 @@
+# Render blueprint for the Confero backend.
+# In Render: New → Blueprint → pick this repo, and it reads this file.
+# Secrets (GROQ_API_KEY, SERVER_PUBLIC_URL) are set in the dashboard, not here.
+services:
+  - type: web
+    name: confero-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      # ── AI provider selector ──────────────────────────────────────────────
+      # To switch provider: change this value to one of groq | gemini |
+      # openrouter | cerebras | mistral | together | cohere | openai |
+      # anthropic | ollama, set that provider's API key in the Render dashboard,
+      # and push. That's the whole switch — no code change.
+      - key: CHAT_PROVIDER
+        value: groq
+      # Automatic failover if the primary provider is down/slow. Comma-separated,
+      # tried in order (backups need their key set below + in the dashboard).
+      - key: CHAT_FALLBACKS
+        value: gemini
+      # Gemini is the armed fallback — set GEMINI_API_KEY in the dashboard (secret):
+      - key: GEMINI_API_KEY
+        sync: false
+      # Transcription always uses Groq Whisper, so this key is always required:
+      - key: GROQ_API_KEY
+        sync: false            # set in dashboard — never committed
+      - key: JWT_SECRET
+        generateValue: true    # Render generates a strong random secret
+      - key: SERVER_PUBLIC_URL
+        sync: false            # set to the Render URL after first deploy
+
+      # ── Alternate provider keys — uncomment the one you switch to, then set
+      #    its value in the Render dashboard (sync:false = secret, not committed):
+      # - key: GEMINI_API_KEY      # sync: false
+      # - key: OPENROUTER_API_KEY  # sync: false
+      # - key: CEREBRAS_API_KEY    # sync: false
+      # - key: MISTRAL_API_KEY     # sync: false
+      # - key: TOGETHER_API_KEY    # sync: false
+      # - key: COHERE_API_KEY      # sync: false
+      # - key: OPENAI_API_KEY      # sync: false
+      # - key: ANTHROPIC_API_KEY   # sync: false
+
+      # ── Optional features (uncomment + set in dashboard to enable) ──
+      # - key: GOOGLE_CLIENT_ID     # sync: false   (Google sign-in)
+      # - key: GOOGLE_CLIENT_SECRET # sync: false
+      # - key: SMTP_HOST            # sync: false   (password-reset emails)
+      # - key: SMTP_USER            # sync: false
+      # - key: SMTP_PASS            # sync: false
+      # - key: SMTP_FROM            # sync: false

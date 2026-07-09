@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Secrets & local config — NEVER commit these
+.env
+.env.local
+server/.env
+server/data/
+
+# Build output
+dist/
+build/
+
+# Runtime / ephemeral
+recordings/
+models/whisper/*.bin
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db

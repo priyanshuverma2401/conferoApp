@@ -1,0 +1,51 @@
+{
+  "name": "confero",
+  "version": "0.1.0",
+  "description": "Real-time AI meeting/teaching assistant: live transcription, contextual talking points, and a private overlay only you see.",
+  "main": "src/main/main.js",
+  "private": true,
+  "author": "abhishek.prasar1@gmail.com",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "electron-audio-loopback": "^1.0.6",
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^2.4.5"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.confero.app",
+    "productName": "Confero",
+    "asar": true,
+    "files": [
+      "**/*",
+      "!.env",
+      "!recordings/**",
+      "!server/**",
+      "!models/whisper/*.bin"
+    ],
+    "extraResources": [
+      {
+        "from": ".env.example",
+        "to": ".env.example"
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

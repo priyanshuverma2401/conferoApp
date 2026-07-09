@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    html, body {
+      margin: 0; padding: 0; background: transparent; overflow: hidden;
+      font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+    }
+    .pill {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(20, 20, 24, 0.88);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 20px;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: #eaeaea;
+      width: fit-content;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #7cffb3;
+    }
+    .dot.off { background: #ff7c7c; }
+  </style>
+</head>
+<body>
+  <div class="pill">
+    <div class="dot" id="dot"></div>
+    <span id="label">Stealth ON</span>
+  </div>
+  <script>
+    const dot = document.getElementById('dot');
+    const label = document.getElementById('label');
+
+    function render(enabled) {
+      dot.classList.toggle('off', !enabled);
+      label.textContent = enabled ? 'Stealth ON' : 'Stealth OFF';
+    }
+
+    window.stealthAPI.getStealthState().then((s) => render(s.enabled));
+    window.stealthAPI.onStealthStateChanged((s) => render(s.enabled));
+  </script>
+</body>
+</html>
