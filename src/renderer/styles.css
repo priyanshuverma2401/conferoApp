@@ -615,6 +615,11 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 .app.focus .pane-extra { display: none; }
 .app.focus #transcript-pane { display: none; }
 .app.focus #suggestions-pane { display: none; }
+/* ...except on free, where there IS no stage to own the window (stageShow() is
+   Pro-only) — the suggestions feed is the primary object and answers render into
+   it. Hiding it here made "Answer now" look dead: the answer arrived and painted
+   into a display:none pane. */
+.app.focus.free #suggestions-pane { display: block; flex: 1; border-top: none; }
 .app.focus.peek #transcript-pane { display: block; flex: 1; }
 .app.focus.peek #suggestions-pane { display: block; flex: 1; border-top: 1px solid var(--border); }
 /* Focus mode: the stage is a fixed frame inside the window. The question is

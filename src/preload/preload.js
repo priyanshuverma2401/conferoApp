@@ -89,6 +89,11 @@ contextBridge.exposeInMainWorld('stealthAPI', {
     ipcRenderer.on('answer:pending', listener);
     return () => ipcRenderer.removeListener('answer:pending', listener);
   },
+  onAnswerQuick: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('answer:quick', listener);
+    return () => ipcRenderer.removeListener('answer:quick', listener);
+  },
 
   archiveAndResetSession: () => ipcRenderer.invoke('sessions:archive-and-reset'),
   listSessions: () => ipcRenderer.invoke('sessions:list'),

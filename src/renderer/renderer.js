@@ -325,6 +325,14 @@ window.stealthAPI.onAnswerPending(({ question }) => {
   currentFeedCard = null;
 });
 
+// "Answer now" with an empty transcript: there's nothing to answer, so the main
+// process replies with a status line instead of an answer. It's not something to
+// say aloud — surface it as a banner and release the button.
+window.stealthAPI.onAnswerQuick(({ text }) => {
+  resetHelpBtn();
+  showNote(text);
+});
+
 // One consistent structured answer (was two racing calls). Parses the optional
 // correction NOTE (shown as a chip, never spoken) + the labeled blocks, and
 // renders them as Cluely-style bullets with the spoken words in bold.
@@ -480,8 +488,15 @@ const needsConsent = () => activeModeId === 'interview' && !consentedThisRun;
 
 // ── Init ──
 window.stealthAPI.getConfig().then((cfg) => { titleEl.textContent = cfg.productName; });
-window.stealthAPI.getAccount().then(({ plan: p }) => { plan = p || 'free'; }).catch(() => {});
-window.stealthAPI.onPlanChanged(({ plan: p }) => { plan = p || 'free'; });
+// The plan drives layout, not just copy: the answer stage is Pro-only, so focus
+// mode needs to know which pane is the primary object. Mirror it onto <div id=app>.
+function applyPlan(p) {
+  plan = p || 'free';
+  appEl.classList.toggle('free', plan !== 'pro');
+}
+applyPlan(plan); // paint the free layout until the backend says otherwise
+window.stealthAPI.getAccount().then(({ plan: p }) => applyPlan(p)).catch(() => {});
+window.stealthAPI.onPlanChanged(({ plan: p }) => applyPlan(p));
 
 // ── Modes + session gate ──
 const CONTEXT_PLACEHOLDERS = {

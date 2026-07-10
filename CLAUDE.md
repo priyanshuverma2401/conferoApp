@@ -60,7 +60,10 @@ Done + verified: QA telemetry log; Whisper prompt-echo bug fixed; vocabulary ban
 (~40 domains); strict model picker; answer-stage layout (fixed-tall, width-resize,
 pinned controls + follow-up, Clear button); themes (Default + Matrix, light-blue was
 removed); original logo mark; DSA & System Design mode (persona + code rendering +
-Copy button + Qwen3-Coder soft default with fallback).
+Copy button + Qwen3-Coder soft default with fallback); free-plan "Answer now" fix
+(focus mode hid `#suggestions-pane` — the only place free answers render — so
+answers painted into a `display:none` pane; `.app.focus.free` now keeps it, and
+the `answer:quick` IPC event finally has a listener).
 
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
