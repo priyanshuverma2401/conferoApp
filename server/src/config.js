@@ -31,6 +31,10 @@ const config = {
   groqApiKey: process.env.GROQ_API_KEY || '',
   groqSttModel: process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo',
   groqChatModel: process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant',
+  // Multimodal model for OCR/text-extraction from a snipped screen region. Groq's
+  // Llama-4 Scout is vision-capable and OpenAI-compatible (image_url content).
+  groqVisionModel: process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct',
+  geminiVisionModel: process.env.GEMINI_VISION_MODEL || 'gemini-2.5-flash',
 
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   // A pool of Gemini keys (GEMINI_API_KEYS, comma-separated) plus the single

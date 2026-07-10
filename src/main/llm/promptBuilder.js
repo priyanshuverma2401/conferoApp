@@ -113,16 +113,27 @@ function contextBlocks({ modeContext, documentContext }) {
   return `${session}${doc}`;
 }
 
+// The candidate's own earlier statements this session (mic / [Me]), kept past the
+// recent window so an interviewer follow-up on something they said 4-5 questions
+// ago — a project, a tool, a design choice — can be answered from what they
+// ACTUALLY told them, not invented. Kept separate from the interviewer's turns on
+// purpose: this is the candidate's record.
+function candidateNotesBlock(candidateNotes) {
+  if (!candidateNotes || !candidateNotes.length) return '';
+  const lines = candidateNotes.map((n) => `- ${n}`).join('\n');
+  return `## What I've already told them earlier this session\n${lines}\nIf their question follows up on any of this (a project, tool, or decision I mentioned), ground the answer in what I actually said above — stay consistent with it, don't contradict or invent.\n\n`;
+}
+
 // ONE structured answer for the whole pipeline — a lead line to say immediately
 // plus the natural next turns, rendered as labeled bullets. One call means the
 // lead and the rest can never disagree (they used to be two calls that guessed
 // a mis-heard term independently and contradicted each other).
-function buildAnswerPrompt({ question, transcriptWindow, modeContext, documentContext, prevQA }) {
+function buildAnswerPrompt({ question, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA }) {
   const lines = (transcriptWindow || [])
-    .map((t) => `[${t.source === 'system' ? 'Them' : 'Me'}] ${t.text}`)
+    .map((t) => `[${t.source === 'system' ? 'Interviewer' : 'Me'}] ${t.text}`)
     .join('\n');
-  const convo = lines ? `Recent conversation:\n${lines}\n\n` : '';
-  return `${contextBlocks({ modeContext, documentContext })}${threadClause(prevQA)}${convo}They just asked: "${question}"
+  const convo = lines ? `Recent conversation ([Interviewer] = them, [Me] = what I said):\n${lines}\n\n` : '';
+  return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${threadClause(prevQA)}${convo}They just asked: "${question}"
 
 Give me what to say, as 3 or 4 labeled blocks. The FIRST block is the main answer to say right now; the rest cover the natural follow-up, a stronger version, or how to go deeper if pushed. Format each block as exactly two lines:
 LABEL: a short cue of 2 to 6 words — e.g. "Say this", "My role", "Stronger version", "If they push deeper"
@@ -138,15 +149,31 @@ If a name in the question looks garbled or mis-transcribed, silently use the clo
 // LABEL:/SAY: structure or the spoken style here; the mode's systemPrompt owns the
 // format (lowercase scratchpad, terse names, one ```code``` block, complexity note
 // / design talking points + a "say:" line).
-function buildCodeAnswerPrompt({ question, transcriptWindow, modeContext, documentContext, prevQA }) {
+function buildCodeAnswerPrompt({ question, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA, anchoredProblem }) {
   const lines = (transcriptWindow || [])
-    .map((t) => `[${t.source === 'system' ? 'Them' : 'Me'}] ${t.text}`)
+    .map((t) => `[${t.source === 'system' ? 'Interviewer' : 'Me'}] ${t.text}`)
     .join('\n');
-  const convo = lines ? `Recent conversation:\n${lines}\n\n` : '';
-  const prev = prevQA ? `Earlier problem: "${prevQA.question}"\nWhat I already had: "${prevQA.answer}"\nIf this is a follow-up on the same problem, build on that — optimize it or handle the new constraint; don't restate it.\n\n` : '';
-  return `${contextBlocks({ modeContext, documentContext })}${prev}${convo}The problem / question on the table: "${question}"
+  const convo = lines ? `Recent conversation ([Interviewer] = them, [Me] = what I said):\n${lines}\n\n` : '';
+  const prev = prevQA ? `What I already gave them (my current solution / notes):\n"${prevQA.answer}"\nIf this turn builds on the same problem, extend THIS — optimize it, dry-run it, or handle the new constraint; don't restate what's already there.\n\n` : '';
+  // The anchored problem is the interviewer's on-screen question — the stable
+  // spine of the round. When present, `question` is a follow-up instruction
+  // about it ("walk me through the approach first", "dry run [3,1,2]", "make it
+  // O(1) space"), NOT a fresh problem — so we frame them separately.
+  const hasAnchor = anchoredProblem && anchoredProblem.trim() && anchoredProblem.trim() !== (question || '').trim();
+  const anchor = hasAnchor
+    ? `The problem on the screen (fixed for this round):\n"${anchoredProblem.trim()}"\n\nWhat they're asking me to do right now:\n"${question}"\n\n`
+    : `The problem / question on the table: "${question}"\n\n`;
+  return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${prev}${convo}${anchor}Feed me the scratchpad now, exactly in your internal-monologue style.
 
-Feed me the scratchpad now, exactly in your internal-monologue style. If it's a coding problem, include ONE fenced code block with the core solution. If it's a design problem, give the rough talking points and end with a "say:" line. Nothing else — no preamble.`;
+DEFAULT (do this unless the turn explicitly asks for something narrower): a couple of rough lines naming the pattern and approach, THEN the core solution in ONE fenced \`\`\`code block, THEN one line on time and space complexity. For a system / LLD design problem instead give 3-4 rough talking points and end with a "say:" line.
+
+Only if this turn explicitly asks for something narrower, do JUST that instead:
+- asks for the approach / intuition only → give the approach in words, no code block yet
+- asks for a dry run / trace → walk the current code line by line on their example, showing how the key variables change, no rewrite
+- asks only for complexity → just the time/space analysis and whether it optimizes
+- asks to optimize or handle a new constraint → revise the solution I already have, don't rebuild from scratch
+
+Nothing else — no preamble, no markdown headers.`;
 }
 
 // Stage 3 — predict the likely next question with a prepared angle. Generated

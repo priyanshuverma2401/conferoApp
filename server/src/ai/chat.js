@@ -331,4 +331,64 @@ const PROVIDER_LABELS = {
   openai: 'OpenAI', github: 'GPT-4o-mini', anthropic: 'Claude', ollama: 'Ollama',
 };
 
-module.exports = { chat, PROVIDERS };
+// ── Vision OCR: extract text from a snipped screen region ────────────────────
+// Used by the Code Assist "Snip" flow: the app captures a region of the screen
+// (stealthily) and sends it here to be turned back into text — a coding or
+// system-design problem it then treats like a pasted question. A vision model
+// beats classic OCR badly on CODE (brackets, l/1/O/0, indentation, ≤/<=), which
+// is exactly the content here. Prefers Gemini (if keyed) else Groq's Llama-4
+// Scout, both multimodal. `dataUrl` is a data:image/png;base64,... string.
+const VISION_PROMPT =
+  'This image is a snippet of a coding or system-design interview problem. Transcribe ALL text in it EXACTLY as written — keep code, symbols, indentation, examples, and constraints verbatim. If it is a diagram, briefly describe it. Output ONLY the transcribed text, no commentary, no markdown fences.';
+
+async function visionViaGroq(dataUrl) {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${config.groqApiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.groqVisionModel,
+      temperature: 0,
+      max_tokens: 1200,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: VISION_PROMPT },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ],
+      }],
+    }),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw upstream('groq-vision', res);
+  const data = await res.json();
+  return (data.choices?.[0]?.message?.content || '').trim();
+}
+
+async function visionViaGemini(dataUrl) {
+  const m = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+  if (!m) throw new Error('Bad image data');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.geminiVisionModel}:generateContent?key=${config.geminiApiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: VISION_PROMPT }, { inline_data: { mime_type: m[1], data: m[2] } }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 1200 },
+    }),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw upstream('gemini-vision', res);
+  const data = await res.json();
+  return (data.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '').trim();
+}
+
+async function extractText(dataUrl) {
+  if (config.geminiApiKey) {
+    try { return await visionViaGemini(dataUrl); }
+    catch (e) { if (!config.groqApiKey) throw e; /* fall through to Groq */ }
+  }
+  if (config.groqApiKey) return visionViaGroq(dataUrl);
+  throw new Error('No vision provider is configured.');
+}
+
+module.exports = { chat, PROVIDERS, extractText };

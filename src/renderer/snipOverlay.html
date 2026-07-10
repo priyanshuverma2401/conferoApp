@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Snip</title>
+  <style>
+    html, body {
+      margin: 0; width: 100%; height: 100%; overflow: hidden;
+      cursor: crosshair; user-select: none;
+      /* Slight dim signals "snip mode" to the candidate. Content protection keeps
+         it invisible to the interviewer's screen-share. */
+      background: rgba(0, 0, 0, 0.18);
+      font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    }
+    #hint {
+      position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+      background: rgba(18, 15, 28, 0.92); color: #f4f2fb;
+      font-size: 13px; padding: 8px 16px; border-radius: 20px;
+      border: 1px solid rgba(124, 92, 255, 0.5); white-space: nowrap;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4); pointer-events: none;
+      transition: opacity 120ms;
+    }
+    #hint b { color: #b9a6ff; }
+    #sel {
+      position: fixed; display: none; box-sizing: border-box;
+      border: 1.5px solid #7c5cff; background: rgba(124, 92, 255, 0.10);
+      /* The box-shadow dims everything OUTSIDE the selection — the classic
+         "spotlight" snip effect. */
+      box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.30);
+    }
+    #dims {
+      position: fixed; bottom: -22px; right: 0;
+      font-size: 11px; color: #b9a6ff; background: rgba(18,15,28,0.9);
+      padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div id="hint">Drag to snip the problem &nbsp;·&nbsp; <b>Esc</b> to cancel</div>
+  <div id="sel"><span id="dims"></span></div>
+  <script>
+    const sel = document.getElementById('sel');
+    const hint = document.getElementById('hint');
+    const dims = document.getElementById('dims');
+    let sx = 0, sy = 0, dragging = false;
+
+    function box(e) {
+      const x = Math.min(sx, e.clientX), y = Math.min(sy, e.clientY);
+      const w = Math.abs(e.clientX - sx), h = Math.abs(e.clientY - sy);
+      return { x, y, width: w, height: h };
+    }
+    function paint(r) {
+      sel.style.left = r.x + 'px'; sel.style.top = r.y + 'px';
+      sel.style.width = r.width + 'px'; sel.style.height = r.height + 'px';
+      sel.style.display = 'block';
+      dims.textContent = Math.round(r.width) + ' × ' + Math.round(r.height);
+    }
+
+    window.addEventListener('mousedown', (e) => {
+      dragging = true; sx = e.clientX; sy = e.clientY;
+      hint.style.opacity = '0.12';
+      paint({ x: sx, y: sy, width: 0, height: 0 });
+    });
+    window.addEventListener('mousemove', (e) => { if (dragging) paint(box(e)); });
+    window.addEventListener('mouseup', (e) => {
+      if (!dragging) return;
+      dragging = false;
+      const r = box(e);
+      // Too small to be a real selection — treat as a cancel click.
+      if (r.width < 8 || r.height < 8) { window.stealthAPI.snipCancel(); return; }
+      window.stealthAPI.snipRegion(r);
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') window.stealthAPI.snipCancel();
+    });
+  </script>
+</body>
+</html>

@@ -62,7 +62,10 @@ function setModes(remoteModes) {
 }
 
 function listModes() {
-  return activeModes.map(({ id, label, emoji, blurb }) => ({ id, label, emoji, blurb }));
+  // answerFormat is surfaced so the renderer can show code-round UI (the Code
+  // Assist workspace) only for code modes. The heavy fields (systemPrompt,
+  // preferredProvider) stay server-side.
+  return activeModes.map(({ id, label, emoji, blurb, answerFormat }) => ({ id, label, emoji, blurb, answerFormat }));
 }
 
 function getMode(id) {

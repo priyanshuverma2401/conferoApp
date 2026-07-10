@@ -1,0 +1,75 @@
+name: Release
+
+# Builds Windows, macOS, and Linux installers and attaches them to a GitHub
+# Release. Trigger by pushing a version tag:
+#     git tag v0.1.0 && git push origin v0.1.0
+# (or run manually from the Actions tab to just produce downloadable artifacts).
+#
+# macOS builds MUST run on a mac runner — this is why CI exists: you can't build a
+# .dmg on Windows. Builds are UNSIGNED for now, so users will see an "unknown
+# developer" warning; see DISTRIBUTION.md for the download-page install notes.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: dist:win
+          - os: macos-latest
+            script: dist:mac
+          - os: ubuntu-latest
+            script: dist:linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build installer (${{ matrix.os }})
+        run: npm run ${{ matrix.script }}
+        env:
+          # Unsigned build — electron-builder must not try to publish on its own;
+          # the release step below attaches the artifacts.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-installers
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
+          if-no-files-found: warn
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const config = require('./config');
 const { requireAuth } = require('./auth');
-const { chat } = require('./ai/chat');
+const { chat, extractText } = require('./ai/chat');
 
 // Audio never touches disk — kept in memory only for the moment it takes to
 // forward to Groq, then discarded. Nothing about a user's meeting is stored.
@@ -90,6 +90,23 @@ router.post('/suggest', requireAuth, express.json({ limit: '256kb' }), async (re
   } catch (err) {
     // Include the attempt trace so the app's QA log records what was tried.
     res.status(502).json({ error: err.message, attempts: err.attempts });
+  }
+});
+
+// Vision OCR for the Code Assist "Snip" flow: the app captures a region of the
+// screen and posts the cropped PNG here to be turned back into text. The image is
+// held in memory only for the extraction call — never stored. 8MB cap covers a
+// full-screen PNG with headroom.
+router.post('/extract-text', requireAuth, express.json({ limit: '8mb' }), async (req, res) => {
+  const { image } = req.body || {};
+  if (typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'image (data URL) required.' });
+  }
+  try {
+    const text = await extractText(image);
+    res.json({ text });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
 });
 

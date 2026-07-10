@@ -1,10 +1,11 @@
 const fs = require('fs');
-const { app, session, desktopCapturer, ipcMain, dialog, shell, globalShortcut } = require('electron');
+const { app, session, desktopCapturer, screen, ipcMain, dialog, shell, globalShortcut } = require('electron');
 const { initMain: initLoopbackAudio } = require('electron-audio-loopback');
 const { loadConfig, isSetupComplete, PRODUCT_NAME } = require('./config/configLoader');
 const { createOverlayWindow } = require('./windows/overlayWindow');
 const { createIndicatorWindow } = require('./windows/indicatorWindow');
 const { createOnboardingWindow } = require('./windows/onboardingWindow');
+const { createSnipWindow } = require('./windows/snipWindow');
 const { startSignin } = require('./auth/signinFlow');
 const sessionStore = require('./state/sessionStore');
 const { registerStealthToggle, unregisterAll } = require('./shortcuts/stealthShortcut');
@@ -228,6 +229,34 @@ function startMainApp() {
   // Read-back lines are the user reciting Confero's own words — never context.
   const cleanTranscript = () => appState.transcript.filter((t) => !t.readBack);
 
+  // How many recent lines go into an answer verbatim. Older content is carried by
+  // candidateNotes() (below) so it doesn't just fall off a cliff.
+  const RECENT_WINDOW = 20;
+  const recentWindow = () => cleanTranscript().slice(-RECENT_WINDOW);
+
+  // Persistent, role-separated memory of what the CANDIDATE (mic) has said this
+  // session — their self-intro, projects, tools, decisions. The recent window
+  // only holds the last ~20 lines, so a project the candidate mentioned 4-5
+  // questions ago has scrolled out by the time the interviewer follows up on it
+  // ("how did you scale that?"). We keep the candidate's substantive statements
+  // that are NO LONGER in the recent window, bounded by count + chars, so the
+  // answer can be grounded in what they actually claimed earlier. Interviewer
+  // (system) turns are deliberately excluded — this is the candidate's own record.
+  const candidateNotes = () => {
+    const inRecent = new Set(recentWindow());
+    const said = cleanTranscript()
+      .filter((t) => t.source === 'mic' && !inRecent.has(t))
+      .map((t) => t.text.trim())
+      .filter((t) => t.split(/\s+/).length >= 5); // drop "yes", "okay got it" filler
+    const out = [];
+    let chars = 0;
+    for (let i = said.length - 1; i >= 0 && out.length < 20 && chars < 1800; i--) {
+      out.unshift(said[i]);
+      chars += said[i].length;
+    }
+    return out;
+  };
+
   // Tracks the newest transcript timestamp already covered by an answer or
   // suggestion, so the ambient loop never re-answers content the question
   // pipeline (or a previous tick) already handled.
@@ -263,6 +292,17 @@ function startMainApp() {
     let hits = 0;
     for (const w of words) if (have.has(w)) hits++;
     return hits / words.length;
+  }
+
+  // Speaker attribution is by audio stream (system = interviewer, mic = candidate),
+  // which is clean on headphones. On SPEAKERS the mic also picks up the
+  // interviewer's voice, so their words would land a second time as a [Me] turn
+  // and pollute the candidate's record. If a mic line heavily overlaps a recent
+  // interviewer (system) line, treat it as that bleed and drop it from context —
+  // same handling as a read-back.
+  function isInterviewerEcho(text) {
+    const recentThem = appState.transcript.filter((t) => t.source === 'system').slice(-4);
+    return recentThem.some((t) => overlapRatio(t.text, text) >= 0.6);
   }
 
   function queueQuestion(text) {
@@ -324,7 +364,11 @@ function startMainApp() {
     // per session, then answers stop carrying the previous Q+A.
     let prevQA = appState.lastQA;
     let adaptiveUpsell = false;
-    if (prevQA && appState.plan !== 'pro') {
+    // Coding rounds are threaded by nature — "explain the approach", "now optimize",
+    // "dry run it" are all follow-ups on ONE anchored problem, so threading is a
+    // correctness requirement here, not the premium follow-up surface. Exempt code
+    // mode from the free-tier gate; the upsell still applies to spoken modes.
+    if (prevQA && appState.plan !== 'pro' && !isCode) {
       if (appState.adaptiveUsed >= 1) {
         prevQA = null;
         adaptiveUpsell = true;
@@ -345,10 +389,18 @@ function startMainApp() {
     try {
       const promptArgs = {
         question: questionText,
-        transcriptWindow: cleanTranscript().slice(-20),
+        transcriptWindow: recentWindow(),
+        // What the candidate already told the interviewer earlier this session —
+        // so a follow-up on a project/tool they mentioned several questions ago is
+        // grounded in what they actually said, not guessed.
+        candidateNotes: candidateNotes(),
         modeContext,
         documentContext,
         prevQA,
+        // A spoken turn in a coding round is an instruction ABOUT the on-screen
+        // problem, not a fresh problem — carry the anchor so the model answers
+        // "dry run it" / "make it O(1) space" against what's actually on screen.
+        anchoredProblem: isCode ? appState.activeCodingProblem : null,
       };
       answer = await llmClient.getAnswer({
         systemPrompt: promptBuilder.getSystemPrompt(),
@@ -381,7 +433,19 @@ function startMainApp() {
 
     // Up next is a spoken follow-up prediction — skip it for code modes, where a
     // "likely next question" spoken line makes no sense on a coding scratchpad.
-    if (isCode) return;
+    if (isCode) {
+      // Mirror the answer into the Code Assist workspace thread (if open), so a
+      // spoken follow-up — "walk me through the approach", "dry run [3,1,2]",
+      // "now optimize space" — lands in the same place as the pasted problem it
+      // builds on, right next to the candidate's earlier turns.
+      if (appState.activeCodingProblem) {
+        send('code:answer', {
+          question: questionText, text: answerText, ms: Date.now() - t0,
+          provider: answer.provider, detail: answer.detail, source: 'voice',
+        });
+      }
+      return;
+    }
 
     // Up next — pure bonus; failures are silent and it never delays anything.
     try {
@@ -439,16 +503,24 @@ function startMainApp() {
         const { text, ...confidence } = await transcriptionEngine.transcribeFile(filePath);
         if (text && !isLikelyHallucination(text, confidence)) {
           if (source === 'system') appState.sawSystemAudio = true;
-          const readBack = source === 'mic' && isReadBack(text);
-          // Only THEIR voice asks questions — except in solo practice (mic
-          // only, no system audio yet), where the mic is all we have.
-          const canTrigger = source === 'system' || !appState.sawSystemAudio;
-          const isQuestion = !readBack && canTrigger && looksLikeQuestion(text);
-          const payload = { source, text, timestamp: Date.now(), readBack, isQuestion };
-          appState.transcript.push(payload);
-          send('transcript:chunk', payload);
-          qaLog.log('transcript', { source, readBack, isQuestion, canTrigger, text: qaLog.preview(text) });
-          if (canTrigger && !readBack) onThemUtterance(text, isQuestion);
+          // Interviewer voice bleeding into the mic (candidate on speakers): the
+          // same words are already captured on the system stream, so drop the
+          // duplicate instead of recording it as a candidate [Me] line. Gated on
+          // sawSystemAudio so solo practice (mic-only) never loses real speech.
+          if (source === 'mic' && appState.sawSystemAudio && isInterviewerEcho(text)) {
+            qaLog.log('transcript_bleed', { text: qaLog.preview(text) });
+          } else {
+            const readBack = source === 'mic' && isReadBack(text);
+            // Only THEIR voice asks questions — except in solo practice (mic
+            // only, no system audio yet), where the mic is all we have.
+            const canTrigger = source === 'system' || !appState.sawSystemAudio;
+            const isQuestion = !readBack && canTrigger && looksLikeQuestion(text);
+            const payload = { source, text, timestamp: Date.now(), readBack, isQuestion };
+            appState.transcript.push(payload);
+            send('transcript:chunk', payload);
+            qaLog.log('transcript', { source, readBack, isQuestion, canTrigger, text: qaLog.preview(text) });
+            if (canTrigger && !readBack) onThemUtterance(text, isQuestion);
+          }
         }
       } catch (err) {
         console.error(`[transcription] failed for ${filePath}:`, err.message);
@@ -464,6 +536,168 @@ function startMainApp() {
   ipcMain.handle('assist:help-now', () => {
     triggerHelpNow();
     return { ok: true }; // results stream back via answer:* events
+  });
+
+  // ── Code Assist workspace (DSA / LLD rounds) ──────────────────────────────
+  // The candidate pastes the interviewer's on-screen problem here. These calls
+  // run OUTSIDE runAnswerPipeline's generation counter on purpose: a paste (or a
+  // typed follow-up) can land at any instant, and a concurrent SPOKEN turn must
+  // not retire it — nor it the spoken one. They share one thing with the voice
+  // path: the anchored problem + lastQA, so voice and typed turns build on each
+  // other. Direct request/response (invoke) — the result returns to the caller.
+  async function solveCode({ question, prevQA, anchoredProblem, instruction }) {
+    const mode = getMode(userSettingsStore.getCachedSettings().activeMode);
+    const preferredProvider = (mode && mode.preferredProvider) || null;
+    const q = instruction && instruction.trim() ? `${question}\n\n(${instruction.trim()})` : question;
+    const t0 = Date.now();
+    const answer = await llmClient.getAnswer({
+      systemPrompt: promptBuilder.getSystemPrompt(),
+      userPrompt: promptBuilder.buildCodeAnswerPrompt({
+        question: q,
+        transcriptWindow: recentWindow(),
+        candidateNotes: candidateNotes(),
+        modeContext: activeModeContext(),
+        documentContext: docSummary(),
+        prevQA,
+        anchoredProblem,
+      }),
+      forcedProvider,
+      preferredProvider,
+    });
+    // Thread state so the NEXT turn (spoken or typed) builds on this one.
+    appState.lastQA = { question, answer: answer.text };
+    appState.sessionAnswers.push({ kind: 'code', question, text: answer.text, provider: answer.provider, detail: answer.detail, at: Date.now() });
+    return { text: answer.text, provider: answer.provider, detail: answer.detail, ms: Date.now() - t0 };
+  }
+
+  ipcMain.handle('assist:solve-problem', async (_event, { problem, instruction }) => {
+    const text = (problem || '').trim();
+    if (!text) return { error: 'Paste the problem first.' };
+    appState.activeCodingProblem = text; // anchor immediately, before the LLM call
+    qaLog.log('code_solve', { instruction: instruction || null, chars: text.length });
+    try {
+      return await solveCode({ question: text, prevQA: null, anchoredProblem: null, instruction });
+    } catch (err) {
+      qaLog.log('code_solve_error', { error: err.message });
+      return { error: err.message };
+    }
+  });
+
+  ipcMain.handle('assist:code-followup', async (_event, { question }) => {
+    const q = (question || '').trim();
+    if (!q) return { error: 'Type a follow-up first.' };
+    qaLog.log('code_followup', { chars: q.length });
+    try {
+      return await solveCode({ question: q, prevQA: appState.lastQA, anchoredProblem: appState.activeCodingProblem });
+    } catch (err) {
+      qaLog.log('code_followup_error', { error: err.message });
+      return { error: err.message };
+    }
+  });
+
+  ipcMain.handle('assist:get-problem', () => ({ problem: appState.activeCodingProblem }));
+  // Clearing the problem also drops lastQA: the anchored DSA problem and its Q+A
+  // are the code thread, and if that thread lingers a spoken question on a NEW
+  // topic gets answered as a follow-up to the old problem (observed: HLD question
+  // answered against the previous DSA problem). Wipe both so the next turn is clean.
+  ipcMain.handle('assist:clear-problem', () => {
+    appState.activeCodingProblem = null;
+    appState.lastQA = null;
+    return { ok: true };
+  });
+
+  // ── Snip → OCR: capture a screen region and turn it back into text ─────────
+  // The candidate drags a rectangle on a stealth (content-protected) overlay; we
+  // grab the screen, crop to that region, and send the crop to the backend's
+  // vision model. The extracted text flows back into the Code Assist paste box,
+  // editable before solving — so a misread constraint is caught by a human, not
+  // acted on blind. The whole thing is invisible to the interviewer's screen-share.
+  let snipWin = null;
+  let snipResolve = null;
+
+  async function captureRegion(rect) {
+    const display = screen.getPrimaryDisplay();
+    const scale = display.scaleFactor || 1;
+    const { width, height } = display.size;
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: Math.round(width * scale), height: Math.round(height * scale) },
+    });
+    const src = sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
+    if (!src || src.thumbnail.isEmpty()) throw new Error('Could not capture the screen.');
+    // The overlay reports the rectangle in DIP (CSS px); the capture is in
+    // physical pixels, so scale the crop by the display's scaleFactor.
+    const full = src.thumbnail.getSize();
+    const crop = {
+      x: Math.max(0, Math.min(Math.round(rect.x * scale), full.width - 1)),
+      y: Math.max(0, Math.min(Math.round(rect.y * scale), full.height - 1)),
+      width: Math.max(1, Math.round(rect.width * scale)),
+      height: Math.max(1, Math.round(rect.height * scale)),
+    };
+    crop.width = Math.min(crop.width, full.width - crop.x);
+    crop.height = Math.min(crop.height, full.height - crop.y);
+    let img = src.thumbnail.crop(crop);
+    // Vision APIs cap resolution; a big crop just wastes tokens/latency.
+    const s = img.getSize();
+    const MAX = 1600;
+    if (Math.max(s.width, s.height) > MAX) {
+      img = s.width >= s.height ? img.resize({ width: MAX }) : img.resize({ height: MAX });
+    }
+    return img.toDataURL();
+  }
+
+  async function extractViaBackend(dataUrl) {
+    const token = sessionStore.getToken();
+    const res = await fetch(`${config.backendUrl}/api/extract-text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ image: dataUrl }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Extraction failed (${res.status})`);
+    return (data.text || '').trim();
+  }
+
+  function closeSnip() {
+    if (snipWin && !snipWin.isDestroyed()) { try { snipWin.close(); } catch (_) { /* ignore */ } }
+    snipWin = null;
+  }
+
+  ipcMain.handle('snip:start', () => {
+    if (proctoringDetected) return Promise.resolve({ error: 'Disabled during a proctored exam.' });
+    closeSnip();
+    return new Promise((resolve) => {
+      snipResolve = resolve;
+      snipWin = createSnipWindow();
+      snipWin.on('closed', () => {
+        snipWin = null;
+        if (snipResolve) { snipResolve({ cancelled: true }); snipResolve = null; }
+      });
+    });
+  });
+
+  ipcMain.on('snip:cancel', () => closeSnip()); // 'closed' handler resolves cancelled
+
+  ipcMain.on('snip:region', async (_event, rect) => {
+    const resolve = snipResolve;
+    snipResolve = null; // take ownership so the 'closed' handler doesn't also resolve
+    const win = snipWin;
+    try {
+      // Hide the overlay before grabbing the screen so its dim/selection never
+      // lands in the capture, then give the compositor a beat to repaint.
+      if (win && !win.isDestroyed()) win.hide();
+      await new Promise((r) => setTimeout(r, 90));
+      const dataUrl = await captureRegion(rect);
+      closeSnip();
+      qaLog.log('snip_capture', { w: Math.round(rect.width), h: Math.round(rect.height) });
+      const text = await extractViaBackend(dataUrl);
+      qaLog.log('snip_extracted', { chars: text.length });
+      if (resolve) resolve({ text });
+    } catch (err) {
+      closeSnip();
+      qaLog.log('snip_error', { error: err.message });
+      if (resolve) resolve({ error: err.message });
+    }
   });
 
   ipcMain.handle('assist:rephrase', async (_event, { text }) => {
@@ -509,6 +743,7 @@ function startMainApp() {
     appState.lastQA = null;
     appState.sessionAnswers = [];
     appState.recentAnswers = [];
+    appState.activeCodingProblem = null; // fresh session → drop the anchored problem
     return { ok: true, saved };
   });
   ipcMain.handle('sessions:list', () => sessionsArchive.listSessions());

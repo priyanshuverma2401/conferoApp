@@ -131,9 +131,61 @@
           <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1.5"/></svg>
         </button>
       </div>
+      <button id="codeAssistBtn" class="btn-sec btn-code" title="Paste a DSA / LLD problem and get a stepwise answer" style="display:none;">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 4L2.5 8L6 12M10 4l3.5 4L10 12"/></svg>
+        <span>Code assist</span>
+      </button>
       <button id="clearBtn" class="btn-icon" title="Clear this session" style="display:none;">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4h11M6 4V2.5h4V4M5 4l.5 9.5a1 1 0 001 1h3a1 1 0 001-1L11 4"/></svg>
       </button>
+    </div>
+
+    <!-- Code Assist workspace (DSA / LLD): paste the interviewer's on-screen
+         problem, get a stepwise answer, then a running thread of follow-ups. The
+         audio pipeline keeps running behind it — a SPOKEN follow-up ("walk me
+         through the approach", "dry run it") lands in this same thread. -->
+    <div id="codeWorkspace" class="code-ws hidden">
+      <div class="cw-head">
+        <div class="cw-title">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 4L2.5 8L6 12M10 4l3.5 4L10 12"/></svg>
+          <span>Code Assist</span>
+          <span id="cwLive" class="cw-live hidden" title="Audio is still listening — spoken follow-ups land here too">● listening</span>
+        </div>
+        <button id="cwClose" class="close-btn" title="Close workspace">&times;</button>
+      </div>
+
+      <!-- Anchored problem: pinned once solved, so every follow-up is clearly
+           about THIS problem. -->
+      <div id="cwAnchor" class="cw-anchor hidden">
+        <span class="cw-anchor-label">Problem on screen</span>
+        <div id="cwAnchorText" class="cw-anchor-text"></div>
+        <button id="cwNewProblem" class="cw-newprob" title="Anchor a different problem">New problem</button>
+      </div>
+
+      <!-- The running thread: initial answer, then follow-ups (typed or spoken). -->
+      <div id="cwThread" class="cw-thread">
+        <div id="cwEmpty" class="cw-empty">Paste the problem the interviewer shared — DSA or system/LLD design — and get a stepwise approach, code, and complexity. Spoken follow-ups during the round show up here too.</div>
+      </div>
+
+      <!-- Composer: paste box + intent chips + send. -->
+      <div class="cw-composer">
+        <div id="cwChips" class="cw-chips">
+          <button class="cw-chip" data-instruction="">Full solution</button>
+          <button class="cw-chip" data-instruction="Explain the approach and intuition first — do NOT write the code yet.">Approach only</button>
+          <button class="cw-chip" data-instruction="Dry run the current solution step by step on a small example, showing how the variables change.">Dry run</button>
+          <button class="cw-chip" data-instruction="Just give the time and space complexity, and whether it can be optimized.">Complexity</button>
+        </div>
+        <textarea id="cwInput" class="cw-input" rows="3" placeholder="Paste the DSA / LLD problem here — or snip it from the screen…"></textarea>
+        <div class="cw-composer-foot">
+          <button id="cwSnipBtn" class="btn-sec cw-snipbtn" title="Snip the problem from your screen — stealth, invisible to the interviewer">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4.5 1v10.5A1.5 1.5 0 0 0 6 13h9M1 4.5h10.5A1.5 1.5 0 0 1 13 6v9"/></svg>
+            <span>Snip screen</span>
+          </button>
+          <button id="cwNewProblemBtn" class="btn-sec cw-newbtn" title="Solve what's in the box as a fresh problem" style="display:none;"><span>＋ New problem</span></button>
+          <span id="cwHint" class="cw-hint"></span>
+          <button id="cwSend" class="btn-cta cw-send"><span>Solve</span></button>
+        </div>
+      </div>
     </div>
 
     <!-- Mock-interview consent: practice is welcome; live-interview use is not. -->

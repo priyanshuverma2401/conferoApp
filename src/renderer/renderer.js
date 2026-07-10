@@ -29,6 +29,7 @@ const paneDivider = document.getElementById('paneDivider');
 const ticker = document.getElementById('ticker');
 const tickerText = document.getElementById('tickerText');
 const historyBtn = document.getElementById('historyBtn');
+const codeAssistBtn = document.getElementById('codeAssistBtn');
 
 // Answer Stage
 const answerStage = document.getElementById('answerStage');
@@ -588,6 +589,14 @@ function renderModeChip(id) {
   if (!m) return;
   modeEmoji.textContent = m.emoji;
   modeLabel.textContent = m.label;
+  updateCodeAssistBtn();
+}
+// Code Assist is a coding-round tool — only surface it for a code-format mode
+// (currently DSA & System Design), so it never clutters a spoken interview.
+function updateCodeAssistBtn() {
+  const m = modes.find((x) => x.id === activeModeId);
+  const isCode = Boolean(m && m.answerFormat === 'code');
+  codeAssistBtn.style.display = isCode ? '' : 'none';
 }
 function renderModeMenu(activeId) {
   modeItemsList.innerHTML = modes.map((m) => `
@@ -691,6 +700,7 @@ function setCapturingUi(capturing) {
   appEl.classList.toggle('focus', capturing);
   if (!capturing) appEl.classList.remove('peek');
   updateClearVisibility();
+  if (window.__cwUpdateLive) window.__cwUpdateLive(); // Code Assist "● listening" badge
 }
 ticker.addEventListener('click', () => appEl.classList.toggle('peek'));
 
@@ -843,3 +853,264 @@ if (SHOW_MODEL_BADGE) {
 }
 
 updateClearVisibility();
+
+// ── Code Assist workspace (DSA / LLD) ──
+// A paste-driven coding surface layered over the app. The audio pipeline keeps
+// running underneath, so a SPOKEN follow-up during the round ("walk me through
+// the approach", "dry run it") streams into the same thread via `code:answer`.
+(function initCodeWorkspace() {
+  const ws = document.getElementById('codeWorkspace');
+  const closeW = document.getElementById('cwClose');
+  const liveBadge = document.getElementById('cwLive');
+  const anchor = document.getElementById('cwAnchor');
+  const anchorText = document.getElementById('cwAnchorText');
+  const newProblem = document.getElementById('cwNewProblem');
+  const newProblemBtn = document.getElementById('cwNewProblemBtn');
+  const snipBtn = document.getElementById('cwSnipBtn');
+  const thread = document.getElementById('cwThread');
+  const emptyMsg = document.getElementById('cwEmpty');
+  const chipsWrap = document.getElementById('cwChips');
+  const chips = Array.from(chipsWrap.querySelectorAll('.cw-chip'));
+  const input = document.getElementById('cwInput');
+  const hint = document.getElementById('cwHint');
+  const sendBtn = document.getElementById('cwSend');
+
+  let anchored = false;      // has a problem been solved / pinned yet?
+  let modifier = '';         // pre-anchor: the selected intent chip's instruction
+  let busy = false;
+
+  function updateLive() {
+    liveBadge.classList.toggle('hidden', !isCapturing);
+  }
+
+  function reflectMode() {
+    // Pre-anchor the composer is the paste box. Post-anchor it's a follow-up box —
+    // but the "New problem" button stays visible so pasting the interviewer's NEXT
+    // question and solving it fresh is one obvious click (not a hidden reset).
+    input.placeholder = anchored
+      ? 'Ask a follow-up (dry run, optimize…) — or paste the NEXT problem and hit “New problem”.'
+      : 'Paste the DSA / LLD problem here…';
+    sendBtn.querySelector('span').textContent = anchored ? 'Send' : 'Solve';
+    newProblemBtn.style.display = anchored ? '' : 'none';
+  }
+
+  function renderAnswerInto(el, text) {
+    // Reuse the exact code-answer renderer + Copy buttons the main stage uses.
+    el.innerHTML = renderCodeAnswer(text);
+    wireCopyButtons(el);
+  }
+
+  // Append a turn to the thread; returns the answer element so the caller fills
+  // it once the reply lands (keeps the "Thinking…" placeholder visible meanwhile).
+  function appendTurn(question, source) {
+    if (emptyMsg) emptyMsg.style.display = 'none';
+    const turn = document.createElement('div');
+    turn.className = 'cw-turn';
+    const srcTag = source === 'voice'
+      ? '<span class="cw-src voice">Interviewer · spoken</span>'
+      : '<span class="cw-src">You</span>';
+    const q = document.createElement('div');
+    q.className = 'cw-turn-q';
+    q.innerHTML = `${srcTag}${escapeHtml(question)}`;
+    const a = document.createElement('div');
+    a.className = 'cw-turn-a';
+    a.innerHTML = '<span class="cw-thinking">Thinking…</span>';
+    turn.appendChild(q);
+    turn.appendChild(a);
+    thread.appendChild(turn);
+    thread.scrollTop = thread.scrollHeight;
+    return a;
+  }
+
+  function setAnchor(problemText) {
+    anchored = true;
+    anchorText.textContent = problemText;
+    anchor.classList.remove('hidden');
+    chips.forEach((c) => c.classList.remove('active'));
+    modifier = '';
+    reflectMode();
+  }
+
+  // A new problem is a fresh round — wipe the old thread so the pinned anchor and
+  // the turns below it always describe the SAME problem.
+  function clearThread() {
+    thread.innerHTML = '';
+    thread.appendChild(emptyMsg);
+    emptyMsg.style.display = '';
+  }
+
+  function appendMeta(answerEl, res) {
+    if (!res.ms) return;
+    const meta = document.createElement('div');
+    meta.className = 'cw-turn-meta';
+    meta.textContent = `${(res.ms / 1000).toFixed(1)}s`;
+    answerEl.parentElement.appendChild(meta);
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function chipLabel(instr) {
+    const c = chips.find((x) => x.getAttribute('data-instruction') === instr);
+    return c ? c.textContent : 'Solve';
+  }
+
+  async function solveInitial(problem) {
+    clearThread(); // fresh problem → fresh thread
+    const a = appendTurn(modifier ? chipLabel(modifier) : 'Initial solution', 'you');
+    setAnchor(problem);
+    input.value = '';
+    const res = await window.stealthAPI.solveProblem(problem, modifier);
+    if (res.error) { a.innerHTML = `<span class="cw-thinking">${escapeHtml(res.error)}</span>`; return; }
+    renderAnswerInto(a, res.text);
+    appendMeta(a, res);
+  }
+
+  async function solveFollowup(question) {
+    const a = appendTurn(question, 'you');
+    input.value = '';
+    const res = await window.stealthAPI.codeFollowup(question);
+    if (res.error) { a.innerHTML = `<span class="cw-thinking">${escapeHtml(res.error)}</span>`; return; }
+    renderAnswerInto(a, res.text);
+    appendMeta(a, res);
+  }
+
+  async function run(text) {
+    if (busy) return;
+    const val = (text != null ? text : input.value).trim();
+    if (!anchored && !val) { hint.textContent = 'Paste the problem first.'; return; }
+    busy = true; hint.textContent = ''; sendBtn.disabled = true;
+    try {
+      if (!anchored) await solveInitial(val);
+      else await solveFollowup(val || 'Give the full working solution: approach, code, and complexity.');
+    } catch (err) {
+      hint.textContent = err.message || 'Something went wrong.';
+    } finally {
+      busy = false; sendBtn.disabled = false;
+    }
+  }
+
+  // Chips: pre-anchor they pick the intent modifier for the initial solve;
+  // post-anchor a tap fires that instruction as an immediate follow-up.
+  chips.forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const instr = chip.getAttribute('data-instruction');
+      if (!anchored) {
+        chips.forEach((c) => c.classList.toggle('active', c === chip));
+        modifier = instr;
+      } else {
+        run(instr || 'Give the full working solution: approach, code, and complexity.');
+      }
+    });
+  });
+
+  sendBtn.addEventListener('click', () => run());
+  // Ctrl/Cmd+Enter sends; plain Enter keeps a newline (problems are multi-line).
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); }
+  });
+
+  // Switch problems. `solveInput=true` takes whatever is in the box and solves it
+  // as a FRESH problem (re-anchor) — this is the fix for "I pasted the next
+  // question but it kept answering the previous one". `solveInput=false` is a
+  // plain reset back to the paste state.
+  async function startNewProblem(solveInput) {
+    const val = input.value.trim();
+    anchored = false;
+    anchor.classList.add('hidden');
+    anchorText.textContent = '';
+    chips.forEach((c) => c.classList.remove('active'));
+    modifier = '';
+    clearThread();
+    newProblemBtn.classList.remove('attn');
+    hint.textContent = '';
+    await window.stealthAPI.clearActiveProblem();
+    reflectMode();
+    if (solveInput && val) {
+      run(); // now !anchored + val → solveInitial(val), a clean code-first solve
+    } else {
+      input.value = '';
+      input.focus();
+    }
+  }
+  newProblem.addEventListener('click', () => startNewProblem(false));     // header: reset
+  newProblemBtn.addEventListener('click', () => startNewProblem(true));   // composer: solve the paste
+
+  // Snip → OCR: capture the problem off the screen (stealth) and drop the
+  // extracted text into the box, EDITABLE — the candidate reviews it before
+  // solving, so a misread constraint never gets acted on blind.
+  snipBtn.addEventListener('click', async () => {
+    if (snipBtn.disabled) return;
+    const label = snipBtn.querySelector('span');
+    const original = label.textContent;
+    snipBtn.disabled = true;
+    label.textContent = 'Snipping…';
+    hint.textContent = '';
+    try {
+      const res = await window.stealthAPI.snipQuestion();
+      if (res.cancelled) { /* user pressed Esc — no-op */ }
+      else if (res.error) { hint.textContent = res.error; }
+      else if (res.text) {
+        input.value = res.text;
+        input.dispatchEvent(new Event('input')); // fires the new-problem nudge if anchored
+        input.focus();
+        hint.textContent = anchored
+          ? 'Extracted — edit if needed, then “New problem” to solve it.'
+          : 'Extracted from screen — edit if needed, then Solve.';
+      } else {
+        hint.textContent = 'Nothing readable in that region.';
+      }
+    } catch (err) {
+      hint.textContent = err.message || 'Snip failed.';
+    } finally {
+      snipBtn.disabled = false;
+      label.textContent = original;
+    }
+  });
+
+  // Nudge: while anchored, a long / multi-line paste is almost always the NEXT
+  // problem, not a follow-up — surface the switch instead of letting it silently
+  // become a follow-up to the old problem.
+  input.addEventListener('input', () => {
+    if (!anchored) return;
+    const v = input.value;
+    const looksNew = v.trim().length > 140 || v.split('\n').length > 3;
+    newProblemBtn.classList.toggle('attn', looksNew);
+    if (looksNew) hint.textContent = 'Looks like a new problem — hit “New problem” to solve it fresh.';
+    else if (hint.textContent.startsWith('Looks like')) hint.textContent = '';
+  });
+
+  function openWorkspace() {
+    ws.classList.remove('hidden');
+    updateLive();
+    // Re-sync the anchor from the main process (a spoken turn may have set it).
+    window.stealthAPI.getActiveProblem().then(({ problem }) => {
+      if (problem && !anchored) setAnchor(problem);
+    }).catch(() => {});
+    setTimeout(() => input.focus(), 30);
+  }
+  // Closing Code Assist = done with this problem. Detach it (clear the anchor +
+  // thread state) so spoken questions afterward — the interviewer moving on to a
+  // system-design or unrelated topic — are answered fresh, NOT against the DSA
+  // problem that was on screen. Reopening starts a clean paste.
+  function closeWorkspace() {
+    ws.classList.add('hidden');
+    startNewProblem(false);
+  }
+
+  codeAssistBtn.addEventListener('click', openWorkspace);
+  closeW.addEventListener('click', closeWorkspace);
+
+  // Spoken follow-ups: the main process mirrors any voice-triggered code answer
+  // here so the round stays in one thread. Only append while a problem is
+  // anchored (otherwise it belongs on the normal answer stage).
+  window.stealthAPI.onCodeAnswer((payload) => {
+    if (!anchored) return;
+    const a = appendTurn(payload.question, 'voice');
+    renderAnswerInto(a, payload.text);
+    appendMeta(a, payload);
+  });
+
+  // Let capture start/stop keep the "● listening" badge honest.
+  window.__cwUpdateLive = updateLive;
+
+  reflectMode();
+})();

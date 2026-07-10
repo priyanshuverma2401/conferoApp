@@ -43,7 +43,11 @@ function loadConfig() {
     // for development or advanced users.
     llmProvider: process.env.LLM_PROVIDER || 'backend',
     transcriptionProvider: process.env.TRANSCRIPTION_PROVIDER || 'backend',
-    backendUrl: process.env.CONFERO_BACKEND_URL || 'http://localhost:8787',
+    // Dev talks to a local backend; a packaged/distributed build talks to the
+    // deployed one baked in at build time (see config/appConfig.js). An explicit
+    // CONFERO_BACKEND_URL env var overrides either.
+    backendUrl: process.env.CONFERO_BACKEND_URL
+      || (app.isPackaged ? require('./appConfig').backendUrl : 'http://localhost:8787'),
 
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
     ollamaModel: process.env.OLLAMA_MODEL || 'llama3.1:8b-instruct-q4_K_M',

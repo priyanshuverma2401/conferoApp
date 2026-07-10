@@ -63,12 +63,58 @@ removed); original logo mark; DSA & System Design mode (persona + code rendering
 Copy button + Qwen3-Coder soft default with fallback); free-plan "Answer now" fix
 (focus mode hid `#suggestions-pane` — the only place free answers render — so
 answers painted into a `display:none` pane; `.app.focus.free` now keeps it, and
-the `answer:quick` IPC event finally has a listener).
+the `answer:quick` IPC event finally has a listener); **Code Assist workspace**
+(DSA/LLD): "Code assist" button (shown only for `answerFormat:'code'` modes)
+opens a full-panel overlay to PASTE the interviewer's on-screen problem. The
+problem is anchored in `appState.activeCodingProblem` for the whole round; paste-
+solve + typed follow-ups run on a dedicated IPC channel (`assist:solve-problem`
+/`assist:code-followup`) OUTSIDE runAnswerPipeline's generation counter so a
+concurrent SPOKEN turn can't retire them. Spoken code-mode answers mirror into
+the same thread via `code:answer` when a problem is anchored. `buildCodeAnswerPrompt`
+now takes `anchoredProblem` + is instruction-responsive (approach-only / dry-run /
+complexity / optimize), with CODE as the strong default (a relaxed version made
+weak fallback models skip code — re-hardened). Code mode is exempt from the free-
+tier follow-up gate (threading is a correctness need in a coding round, not the
+upsell). Multi-problem switching: once a problem is anchored, typed text is a
+follow-up — to switch to the interviewer's NEXT question, a visible composer
+"＋ New problem" button re-anchors + clears the thread (a long/multi-line paste
+pulses it as a nudge). Header "New problem" = plain reset. Fixes the bug where a
+2nd pasted problem was answered as a follow-up to the 1st (prose, wrong problem).
+Closing the workspace now fully detaches the problem: `assist:clear-problem`
+wipes BOTH `activeCodingProblem` AND `lastQA`, so after the candidate closes Code
+Assist a spoken question on a new topic (e.g. HLD "what is system design") is
+answered fresh, not against the previous DSA problem. Verified end-to-end via CDP.
+
+**Conversation memory / speaker separation:** transcript is already speaker-tagged
+(`source:'system'`=interviewer, `'mic'`=candidate); answers only saw the last 20
+lines, so a project the candidate mentioned 4-5 questions ago fell out of context.
+Added `candidateNotes()` in main.js — the candidate's substantive mic statements
+NOT in the recent window (filler/read-backs dropped, bounded 20 items/1800 chars) —
+fed to `buildAnswerPrompt`/`buildCodeAnswerPrompt` as a "What I've already told them
+earlier this session" block, so an interviewer follow-up on an earlier project/tool
+is grounded in what the candidate actually said. Recent-window labels renamed
+[Them]→[Interviewer]. Added `isInterviewerEcho()` mic-bleed guard: on SPEAKERS the
+mic re-hears the interviewer; a mic line overlapping a recent system line (≥0.6) is
+dropped as bleed (gated on `sawSystemAudio` so solo practice is unaffected). For
+clean attribution the candidate should use HEADPHONES. Verified via standalone test
++ real backend LLM grounding call (Kafka/Flink project recalled 20+ lines later).
 
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
    append in `getSystemPrompt`, add a small settings field targeting the active mode.
-2. Screen-OCR for DSA (read the problem off-screen; currently audio-only).
+2. Screen-OCR for DSA — DONE. "Snip screen" button in Code Assist opens a
+   full-screen, CONTENT-PROTECTED selection overlay (`windows/snipWindow.js` +
+   `renderer/snipOverlay.html`); the candidate drags a rectangle, main hides the
+   overlay, grabs the screen via `desktopCapturer`, crops to the region (scaled by
+   `display.scaleFactor`), and POSTs the PNG to the backend `/api/extract-text`,
+   which runs a vision model (Groq Llama-4 Scout `groqVisionModel`, Gemini-vision
+   if keyed) and returns the text. It fills the editable paste box (never
+   auto-solves — a human checks the extracted constraints). IPC: `snip:start`
+   (invoke, resolves {text}|{cancelled}|{error}) + `snip:region`/`snip:cancel`
+   (from the overlay). Refused under proctoring. Verified end-to-end via CDP
+   (captured an on-screen problem image → exact text). LIMITATION: primary display
+   only (multi-monitor is v2). Stealth = same `setContentProtection` as the main
+   overlay; for a real call the user should spot-check it's invisible in the share.
 3. Declutter the idle window; app-hang check via the QA log.
 4. Auto/manual/stealth toggles with explainer popups.
 5. Profile email-change via OTP to recovery email, retaining paid session (needs SMTP;

@@ -67,6 +67,24 @@ contextBridge.exposeInMainWorld('stealthAPI', {
   helpNow: () => ipcRenderer.invoke('assist:help-now'),
   recap: () => ipcRenderer.invoke('assist:recap'),
   rephrase: (text) => ipcRenderer.invoke('assist:rephrase', { text }),
+
+  // Code Assist workspace (DSA / LLD)
+  solveProblem: (problem, instruction) => ipcRenderer.invoke('assist:solve-problem', { problem, instruction }),
+  codeFollowup: (question) => ipcRenderer.invoke('assist:code-followup', { question }),
+  getActiveProblem: () => ipcRenderer.invoke('assist:get-problem'),
+  clearActiveProblem: () => ipcRenderer.invoke('assist:clear-problem'),
+
+  // Snip → OCR. snipQuestion() (Code Assist) opens the selector and resolves with
+  // { text } | { cancelled } | { error }. snipRegion/snipCancel are used BY the
+  // selector overlay window to report the dragged rectangle.
+  snipQuestion: () => ipcRenderer.invoke('snip:start'),
+  snipRegion: (rect) => ipcRenderer.send('snip:region', rect),
+  snipCancel: () => ipcRenderer.send('snip:cancel'),
+  onCodeAnswer: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('code:answer', listener);
+    return () => ipcRenderer.removeListener('code:answer', listener);
+  },
   listModes: () => ipcRenderer.invoke('modes:list'),
   getActiveMode: () => ipcRenderer.invoke('modes:get-active'),
   setActiveMode: (id) => ipcRenderer.invoke('modes:set-active', id),
