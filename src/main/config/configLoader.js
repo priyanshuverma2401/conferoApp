@@ -3,9 +3,27 @@ const path = require('path');
 const { app } = require('electron');
 
 // Single source of truth for the product name — everything else (window titles,
-// error dialogs, installer name) reads from here or from package.json directly,
-// so renaming the product later is a one-line change.
-const PRODUCT_NAME = require('../../../package.json').build.productName;
+// error dialogs, installer name) reads from here, so renaming the product later
+// is a one-line change (top-level "productName" in package.json).
+//
+// IMPORTANT: electron-builder STRIPS the `build` key out of the package.json it
+// packs into app.asar, so `require(pkg).build.productName` works in dev but is
+// `undefined.productName` in a packaged build — which crashed the app on launch
+// for every installed user. Read defensively: the top-level `productName`
+// survives packaging; fall back through build.productName → app name → literal.
+function resolveProductName() {
+  try {
+    const pkg = require('../../../package.json');
+    if (pkg.productName) return pkg.productName;
+    if (pkg.build && pkg.build.productName) return pkg.build.productName;
+  } catch (_) { /* package.json unreadable — fall through */ }
+  try {
+    const name = app && app.getName && app.getName();
+    if (name && name.toLowerCase() !== 'electron') return name;
+  } catch (_) { /* app not ready — fall through */ }
+  return 'Confero';
+}
+const PRODUCT_NAME = resolveProductName();
 
 // In dev, .env lives at the project root and is gitignored. In a packaged build
 // it must NOT be bundled into the installer image (that would permanently embed
