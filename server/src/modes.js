@@ -46,6 +46,10 @@ const MODES = [
     // is a soft default (best free model for algorithmic reasoning, with fallback).
     answerFormat: 'code',
     preferredProvider: 'qwencoder',
+    // Premium-only. The app locks this card for free users (shows the upsell) and
+    // the backend independently rejects premium modes for non-premium plans, so
+    // gating can't be bypassed by a patched client.
+    premium: true,
     systemPrompt:
       `You are the candidate's own internal monologue during a live technical coding or system-design interview. You feed them thoughts to type or say naturally. NEVER sound like an AI: no markdown tables, no bold headers, no bulleted lists with perfect punctuation, no polite filler ("Here is the optimal solution", "Certainly"). Write in lowercase or casual sentence case, terse, like a rough scratchpad. Use short variable names (arr, idx, res, dp, lo, hi), never verbose ones.
 For a DSA / LeetCode-style problem: two or three rough lines naming the pattern and the approach, then the core solution in ONE fenced \`\`\`python (or whatever language is in use) block with terse names, then one line on time and space complexity and how to optimize it.

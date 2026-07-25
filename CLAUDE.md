@@ -99,6 +99,35 @@ dropped as bleed (gated on `sawSystemAudio` so solo practice is unaffected). For
 clean attribution the candidate should use HEADPHONES. Verified via standalone test
 + real backend LLM grounding call (Kafka/Flink project recalled 20+ lines later).
 
+**Login system / monetization (two tiers: free + premium; DSA & System Design =
+premium):** MongoDB Atlas migration DONE (dual-backend `userStore`: Mongo when
+`MONGODB_URI` set, else JSON file; all funcs async; `setPlan`/`updateUser` added).
+Premium gating DONE — `dsa` mode carries `premium:true` (server `modes.js` + local
+fallback), `/api/modes` returns the user's `plan`, the app locks the DSA mode card
+(🔒 Premium badge; clicking it opens the upgrade flow, does NOT switch mode), and
+`/api/suggest` HARD-rejects premium modes for free plans with 402 (app sends the
+active `mode` id via `getAnswer`→`chatCompletionMeta`; 402 surfaces as a friendly
+upsell). Fixed a latent bug: app checked `plan!=='pro'` but backend issues
+`'premium'` — standardized to `'premium'` (premium users now actually get adaptive
+follow-up threading + rephrase). Stripe billing DONE — `server/src/billing.js`
+(checkout session stamps user id; webhook flips plan on `checkout.session.completed`,
+downgrades on `customer.subscription.deleted`); routes `/api/billing/checkout`
+(auth) + `/api/billing/webhook` (express.raw, signature-verified); degrades to a
+friendly 503 until `STRIPE_SECRET_KEY`+`STRIPE_PRICE_ID` set. App: header `✦ Upgrade`
+pill (free only) → `billing:start-upgrade` opens Checkout in browser + polls
+`/api/me`, auto-flips to premium on payment. Post-checkout page `public/upgraded.html`.
+Passwordless email OTP login DONE — `auth.requestOtp`/`verifyOtp` (6-digit, bcrypt-
+hashed, 10-min TTL, 5-attempt cap, single-use, rotates session); routes
+`/api/auth/otp/request`+`/verify`; `emailer.sendLoginCode` (console fallback when no
+SMTP); `signin.html` "Email me a sign-in code instead" flow. Google OAuth was
+already built — just needs `GOOGLE_CLIENT_ID/SECRET`. Verified: 13/13 server-logic
+checks (file backend) + live HTTP (signup/otp/402-gate/503-checkout) + CDP UI
+(pill visible, DSA locked, locked-click→upsell not mode-switch, applyPlan('premium')
+→pill hides+DSA unlocks). Deps: `stripe` added to `server/package.json`. Render env
+to set (all `sync:false`): `STRIPE_SECRET_KEY`,`STRIPE_PRICE_ID`,`STRIPE_WEBHOOK_SECRET`,
+`SMTP_*` (for real OTP/reset emails), optional `GOOGLE_CLIENT_ID/SECRET`. Docs in
+DISTRIBUTION.md. NOT yet committed to git.
+
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
    append in `getSystemPrompt`, add a small settings field targeting the active mode.

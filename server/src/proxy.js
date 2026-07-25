@@ -3,6 +3,11 @@ const multer = require('multer');
 const config = require('./config');
 const { requireAuth } = require('./auth');
 const { chat, extractText } = require('./ai/chat');
+const { MODES } = require('./modes');
+
+// Ids of premium-only modes, derived from the mode table so adding `premium:true`
+// to a mode is the single source of truth.
+const PREMIUM_MODE_IDS = new Set(MODES.filter((m) => m.premium).map((m) => m.id));
 
 // Audio never touches disk — kept in memory only for the moment it takes to
 // forward to Groq, then discarded. Nothing about a user's meeting is stored.
@@ -75,9 +80,19 @@ router.post('/transcribe', requireAuth, upload.single('file'), async (req, res) 
 // Suggest: the desktop app sends the system+user messages; we forward to Groq
 // chat with the server-held key and return the assistant text.
 router.post('/suggest', requireAuth, express.json({ limit: '256kb' }), async (req, res) => {
-  const { messages, provider, prefer } = req.body || {};
+  const { messages, provider, prefer, mode } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required.' });
+  }
+
+  // Hard premium gate: a premium-only mode (DSA & System Design) is rejected for
+  // non-premium plans here on the server, so a patched client can't bypass the
+  // locked UI. req.user.plan is the fresh plan requireAuth read from the store.
+  if (mode && PREMIUM_MODE_IDS.has(mode) && req.user.plan !== 'premium') {
+    return res.status(402).json({
+      error: 'premium_required',
+      message: 'DSA & System Design is a Confero Premium feature. Upgrade to unlock it.',
+    });
   }
 
   try {

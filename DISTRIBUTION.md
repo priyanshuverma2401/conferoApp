@@ -21,11 +21,15 @@ start (note: free services sleep after inactivity and take ~30–60s to wake on 
 first request).
 
 1. Push this repo to GitHub if it isn't already.
-2. Create an account at **render.com** → **New → Blueprint** → pick this repo.
+2. **Create the database first** (see "Database" below) so you have its
+   connection string ready — accounts won't persist without it.
+3. Create an account at **render.com** → **New → Blueprint** → pick this repo.
    Render reads `render.yaml` and proposes the `confero-server` service.
-3. Set the secret env vars in the Render dashboard (they are **not** in git):
+4. Set the secret env vars in the Render dashboard (they are **not** in git):
    - `GROQ_API_KEY` — required (chat + Whisper transcription + snip OCR). Get one
      free at console.groq.com.
+   - `MONGODB_URI` — required for real users; the connection string from the
+     Database step below. Without it accounts are wiped on every restart.
    - `GEMINI_API_KEY` — optional armed fallback; from aistudio.google.com.
    - `JWT_SECRET` — Render generates this automatically (leave it).
    - `SERVER_PUBLIC_URL` — set **after** the first deploy to the URL Render gives
@@ -38,9 +42,58 @@ first request).
 
 Keep that URL — you need it in Part 2.
 
+### Database (free, permanent — MongoDB Atlas)
+
+User accounts, plans, and login sessions live in MongoDB. On a free host the
+local filesystem is wiped on restart, so a real database is required — without
+`MONGODB_URI` set, the backend falls back to a local file and users lose their
+logins on the next restart.
+
+1. Go to **mongodb.com/atlas** → sign up (free).
+2. Create a **free M0 cluster** (512 MB, free forever). Pick any cloud/region.
+3. **Database Access** → add a database user (username + password). Save them.
+4. **Network Access** → Add IP → **Allow access from anywhere** (`0.0.0.0/0`) —
+   Render's IPs are dynamic, so this is required.
+5. **Connect → Drivers** → copy the connection string. It looks like:
+   ```
+   mongodb+srv://USER:PASSWORD@cluster0.xxxx.mongodb.net/?retryWrites=true&w=majority
+   ```
+   Replace `USER`/`PASSWORD` with the ones from step 3.
+6. Paste that into `MONGODB_URI` in the Render dashboard (step 4 above).
+
+The app auto-creates the `confero` database and `users` collection on first run —
+nothing else to set up. (Locally, leave `MONGODB_URI` unset and it uses a JSON
+file so you can develop without Mongo.)
+
 > Other providers (OpenAI, Anthropic, Mistral, …) work too: set that provider's
 > key and change `CHAT_PROVIDER` in `render.yaml`. Groq is the default because it
 > covers chat **and** Whisper **and** vision with one free key.
+
+### Payments — "Upgrade to Premium" (Stripe)
+
+DSA & System Design (and follow-up-aware answers) are **Premium**. The in-app
+**✦ Upgrade** button opens Stripe Checkout; on payment a webhook flips the user's
+plan to `premium`. Until you set the three keys below, the button politely says
+"upgrades aren't available yet" — everything else works. To turn it on:
+
+1. Create a **Stripe** account → **Product** with a recurring **Price**. Copy the
+   price id (`price_...`).
+2. In Render set (all secret, `sync:false`): `STRIPE_SECRET_KEY` (`sk_live_...`),
+   `STRIPE_PRICE_ID` (`price_...`).
+3. In Stripe → **Developers → Webhooks → Add endpoint**:
+   `https://<your-render-url>/api/billing/webhook`, event
+   `checkout.session.completed` (add `customer.subscription.deleted` to auto-
+   downgrade on cancel). Copy the signing secret (`whsec_...`) into Render as
+   `STRIPE_WEBHOOK_SECRET`. Without it the webhook still parses but is unverified
+   — **required in production** so a plan can't be forged.
+
+### Passwordless email login (OTP)
+
+Users can sign in with a **6-digit email code** instead of a password (no setup
+needed to work — but the code only actually *emails* when SMTP is configured).
+The same `SMTP_*` vars that send password-reset emails send the codes. Without
+SMTP, codes are logged to the server console (dev only). Set `SMTP_HOST`,
+`SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` in Render to deliver them for real.
 
 ---
 

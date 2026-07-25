@@ -191,6 +191,46 @@ function startMainApp() {
 
   ipcMain.handle('account:get', () => ({ plan: appState.plan }));
 
+  // Start the upgrade: ask the backend for a PayPal approval URL, open it in the
+  // user's browser, then poll /api/me so the app flips to premium on its own the
+  // moment the webhook records the payment — no relaunch or manual refresh.
+  ipcMain.handle('billing:start-upgrade', async () => {
+    const token = sessionStore.getToken();
+    if (!token) return { error: 'Please sign in first.' };
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      const r = await fetch(`${config.backendUrl}/api/billing/checkout`, { method: 'POST', headers });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.url) return { error: data.message || data.error || 'Upgrades aren\'t available yet.' };
+      await shell.openExternal(data.url);
+      pollForPremium(headers);
+      return { ok: true };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+
+  // Poll /api/me until the plan turns premium (payment webhook landed) or we give
+  // up after ~10 min. On success, update state and tell the overlay.
+  let planPollTimer = null;
+  function pollForPremium(headers) {
+    if (planPollTimer) return; // one poller at a time
+    const started = Date.now();
+    planPollTimer = setInterval(async () => {
+      if (Date.now() - started > 10 * 60 * 1000) { clearInterval(planPollTimer); planPollTimer = null; return; }
+      try {
+        const r = await fetch(`${config.backendUrl}/api/me`, { headers });
+        if (!r.ok) return;
+        const plan = (await r.json()).plan || 'free';
+        if (plan === 'premium') {
+          appState.plan = 'premium';
+          send('account:plan', { plan: 'premium' });
+          clearInterval(planPollTimer); planPollTimer = null;
+        }
+      } catch (_) { /* transient — keep polling */ }
+    }, 4000);
+  }
+
   // ── Anti-proctoring guardrail ──────────────────────────────────────────────
   // Force stealth OFF, stop capture, and tell the overlay to lock down whenever
   // proctoring/exam-lockdown software is running. Checked at launch and on an
@@ -368,7 +408,7 @@ function startMainApp() {
     // "dry run it" are all follow-ups on ONE anchored problem, so threading is a
     // correctness requirement here, not the premium follow-up surface. Exempt code
     // mode from the free-tier gate; the upsell still applies to spoken modes.
-    if (prevQA && appState.plan !== 'pro' && !isCode) {
+    if (prevQA && appState.plan !== 'premium' && !isCode) {
       if (appState.adaptiveUsed >= 1) {
         prevQA = null;
         adaptiveUpsell = true;
@@ -407,6 +447,7 @@ function startMainApp() {
         userPrompt: isCode ? promptBuilder.buildCodeAnswerPrompt(promptArgs) : promptBuilder.buildAnswerPrompt(promptArgs),
         forcedProvider,
         preferredProvider,
+        mode: mode && mode.id, // lets the backend enforce premium gating (e.g. DSA)
       });
     } catch (err) {
       qaLog.log('answer_error', { gen, ms: Date.now() - t0, error: err.message, attempts: err.attempts });
@@ -563,6 +604,7 @@ function startMainApp() {
       }),
       forcedProvider,
       preferredProvider,
+      mode: mode && mode.id, // premium gate: Code Assist runs in DSA (premium) mode
     });
     // Thread state so the NEXT turn (spoken or typed) builds on this one.
     appState.lastQA = { question, answer: answer.text };
@@ -701,7 +743,7 @@ function startMainApp() {
   });
 
   ipcMain.handle('assist:rephrase', async (_event, { text }) => {
-    if (appState.plan !== 'pro' && appState.rephraseUsed >= 1) {
+    if (appState.plan !== 'premium' && appState.rephraseUsed >= 1) {
       return { upsell: true };
     }
     appState.rephraseUsed += 1;

@@ -40,9 +40,9 @@ function createLlmClient(config) {
     // show which model answered. `forcedProvider` (from the in-app model picker)
     // asks the backend to use that model first. Falls back gracefully for
     // providers that don't expose provenance (direct BYOK groq/ollama/claude).
-    getAnswer: async ({ systemPrompt, userPrompt, forcedProvider, preferredProvider }) => {
+    getAnswer: async ({ systemPrompt, userPrompt, forcedProvider, preferredProvider, mode }) => {
       const messages = toMessages(systemPrompt, userPrompt);
-      if (provider.chatCompletionMeta) return provider.chatCompletionMeta(messages, { ...providerConfig, forcedProvider, preferredProvider });
+      if (provider.chatCompletionMeta) return provider.chatCompletionMeta(messages, { ...providerConfig, forcedProvider, preferredProvider, mode });
       return { text: await provider.chatCompletion(messages, providerConfig), provider: null, detail: null };
     },
   };

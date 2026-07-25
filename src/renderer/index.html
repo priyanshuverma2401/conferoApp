@@ -29,6 +29,7 @@
         <span id="title">Confero</span>
       </div>
       <div class="header-right">
+        <button id="upgradeBtn" class="upgrade-pill hidden" title="Unlock DSA &amp; System Design and follow-up-aware answers">✦ Upgrade</button>
         <button id="modeChip" class="mode-chip" title="Switch mode">
           <span id="modeEmoji">🎓</span><span id="modeLabel">Tutoring</span>
           <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
@@ -257,6 +258,38 @@
       </div>
       <h2>Confero is disabled</h2>
       <p id="guardrail-msg">Proctoring software is running. Confero will not operate during a proctored exam.</p>
+    </div>
+
+    <!-- First-run Ethical Use Agreement: must be accepted before the app is
+         usable. Shown on launch until ticked+accepted (persisted, versioned in
+         localStorage). Declining closes the app. -->
+    <div id="agreementGate" class="modal-cover agreement-cover">
+      <div class="gate-card agreement-card">
+        <div class="agreement-head">
+          <span class="agreement-badge" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l7 3v5c0 4.4-3 8-7 10-4-2-7-5.6-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+          </span>
+          <h2>Ethical Use Agreement</h2>
+        </div>
+        <p class="gate-sub">Confero is a powerful AI assistant built to help you <b>learn, practice, and prepare honestly</b>. Before you continue, please read and accept the terms of use.</p>
+        <div class="agreement-terms" id="agreementTerms" tabindex="0">
+          <p>By using Confero, you agree that:</p>
+          <ul>
+            <li><b>Use it ethically.</b> Confero is for learning, skill-building, rehearsal, mock interviews, and honest preparation.</li>
+            <li><b>No deception.</b> You will not use Confero to cheat, deceive, or misrepresent your real abilities in a live interview, exam, certification, or assessment.</li>
+            <li><b>Respect the rules.</b> You will not use Confero where it is prohibited — including proctored exams or any setting whose rules, terms, or laws forbid AI assistance.</li>
+            <li><b>Stay lawful.</b> You will use Confero only for lawful purposes and will not use it to harm, defraud, or mislead others.</li>
+            <li><b>You are responsible.</b> You alone are responsible for how you use Confero and for complying with the policies of any interview, employer, institution, or platform. The creators of Confero are not liable for misuse.</li>
+          </ul>
+          <p class="agreement-fine">Confero is a tool to help you become genuinely better prepared — not a shortcut around honesty. Use it in that spirit.</p>
+        </div>
+        <label class="agreement-check">
+          <input type="checkbox" id="agreementCheckbox" />
+          <span>I have read and agree to use Confero for <b>ethical and lawful purposes only</b>.</span>
+        </label>
+        <button id="agreementAccept" class="btn-cta" disabled><span>Agree &amp; Continue</span></button>
+        <button id="agreementDecline" class="gate-skip">Decline &amp; exit</button>
+      </div>
     </div>
 
     <!-- Settings panel -->

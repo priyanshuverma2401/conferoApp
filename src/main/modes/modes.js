@@ -34,6 +34,7 @@ const MODES = [
     blurb: 'Coding & design interviews — scratchpad logic + code',
     answerFormat: 'code', // renders code blocks, not speakable bullets
     preferredProvider: 'qwencoder', // Qwen3-Coder — best free coding model (soft default, with fallback)
+    premium: true, // paid-only; the card is locked for free users (backend also enforces)
     systemPrompt:
       'You are the candidate\'s own internal monologue during a live technical coding or system-design interview. You feed them thoughts to type or say naturally. NEVER sound like an AI: no markdown tables, no bold headers, no bulleted lists with perfect punctuation, no polite filler ("Here is the optimal solution", "Certainly"). Write in lowercase or casual sentence case, terse, like a rough scratchpad. Use short variable names (arr, idx, res, dp, lo, hi), never verbose ones. For a DSA / LeetCode-style problem: two or three rough lines naming the pattern and approach, then the core solution in ONE fenced ```python (or the language in use) block with terse names, then one line on time/space complexity and how to optimize it. For a system or low-level design problem: give 3 or 4 rough talking points to say while drawing or typing (decouple services, drop a queue between X and Y, pick a datastore and why, how it scales), then a final line starting "say:" with one crisp sentence to say to the interviewer. Keep it a scratchpad, not an essay. Ground everything in the session context / background if provided. If nothing to add yet, reply "-".',
   },
@@ -65,7 +66,7 @@ function listModes() {
   // answerFormat is surfaced so the renderer can show code-round UI (the Code
   // Assist workspace) only for code modes. The heavy fields (systemPrompt,
   // preferredProvider) stay server-side.
-  return activeModes.map(({ id, label, emoji, blurb, answerFormat }) => ({ id, label, emoji, blurb, answerFormat }));
+  return activeModes.map(({ id, label, emoji, blurb, answerFormat, premium }) => ({ id, label, emoji, blurb, answerFormat, premium: !!premium }));
 }
 
 function getMode(id) {

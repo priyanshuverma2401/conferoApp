@@ -32,6 +32,11 @@ services:
         generateValue: true    # Render generates a strong random secret
       - key: SERVER_PUBLIC_URL
         sync: false            # set to the Render URL after first deploy
+      # Persistent user database (accounts/plans/sessions). Without this the store
+      # falls back to a local file, which Render's disk WIPES on every restart —
+      # so this is required for real users. Free MongoDB Atlas connection string:
+      - key: MONGODB_URI
+        sync: false            # set in dashboard — never committed
 
       # ── Alternate provider keys — uncomment the one you switch to, then set
       #    its value in the Render dashboard (sync:false = secret, not committed):
@@ -44,10 +49,28 @@ services:
       # - key: OPENAI_API_KEY      # sync: false
       # - key: ANTHROPIC_API_KEY   # sync: false
 
+      # ── Billing (PayPal) — set these to enable "Upgrade to Premium" ──
+      # PAYPAL_CLIENT_ID + PAYPAL_CLIENT_SECRET + PAYPAL_PLAN_ID together turn on
+      # checkout; without them the upgrade button reports "not available yet".
+      # PAYPAL_WEBHOOK_ID verifies the webhook so only PayPal can flip a user to
+      # premium. PAYPAL_ENV is 'sandbox' (default) or 'live'.
+      - key: PAYPAL_CLIENT_ID
+        sync: false            # from PayPal Developer dashboard (REST app)
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false            # from the same REST app
+      - key: PAYPAL_PLAN_ID
+        sync: false            # P-... recurring plan for the Premium subscription
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false            # id of the webhook you create in the dashboard
+      - key: PAYPAL_ENV
+        sync: false            # 'sandbox' for testing, 'live' for real payments
+
       # ── Optional features (uncomment + set in dashboard to enable) ──
       # - key: GOOGLE_CLIENT_ID     # sync: false   (Google sign-in)
       # - key: GOOGLE_CLIENT_SECRET # sync: false
-      # - key: SMTP_HOST            # sync: false   (password-reset emails)
+      # SMTP powers BOTH password-reset AND email one-time-code login. Without it
+      # those codes/links are logged to the server console (dev only).
+      # - key: SMTP_HOST            # sync: false
       # - key: SMTP_USER            # sync: false
       # - key: SMTP_PASS            # sync: false
       # - key: SMTP_FROM            # sync: false

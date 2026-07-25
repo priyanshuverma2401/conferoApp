@@ -65,8 +65,8 @@ router.get('/google/callback', async (req, res) => {
     const profile = await infoRes.json();
     if (!profile.email) throw new Error('Google account has no email.');
 
-    const user = userStore.findOrCreateOAuthUser({ email: profile.email, provider: 'google' });
-    const token = tokenFor(user);
+    const user = await userStore.findOrCreateOAuthUser({ email: profile.email, provider: 'google' });
+    const token = await tokenFor(user);
     res.redirect(`${appRedirect}?token=${encodeURIComponent(token)}`);
   } catch (err) {
     const msg = encodeURIComponent(err.message);

@@ -6,7 +6,7 @@ const sessionStore = require('../../state/sessionStore');
 // is a thin authenticated proxy.
 // Returns { text, provider, detail } — provider/detail identify which model
 // actually answered (for the live "which model" indicator).
-async function chatCompletionMeta(messages, { backendUrl, forcedProvider, preferredProvider }) {
+async function chatCompletionMeta(messages, { backendUrl, forcedProvider, preferredProvider, mode }) {
   const token = sessionStore.getToken();
   if (!token) throw new Error('Not signed in.');
 
@@ -17,8 +17,9 @@ async function chatCompletionMeta(messages, { backendUrl, forcedProvider, prefer
       'Content-Type': 'application/json',
     },
     // provider = strict override (model picker); prefer = soft default (active
-    // mode's preferred model, front of the fallback chain).
-    body: JSON.stringify({ messages, provider: forcedProvider || undefined, prefer: preferredProvider || undefined }),
+    // mode's preferred model, front of the fallback chain); mode = active mode id,
+    // so the backend can enforce premium gating (e.g. DSA) server-side.
+    body: JSON.stringify({ messages, provider: forcedProvider || undefined, prefer: preferredProvider || undefined, mode: mode || undefined }),
   });
 
   if (!res.ok) {
@@ -28,6 +29,13 @@ async function chatCompletionMeta(messages, { backendUrl, forcedProvider, prefer
       // returns to sign-in on next launch, and surface the friendly reason.
       sessionStore.clear();
       throw new Error(err.message || 'You were signed out. Please sign in again.');
+    }
+    if (res.status === 402) {
+      // Premium-only feature on a free plan (e.g. DSA & System Design). Surface
+      // the friendly upsell message, not a raw error code.
+      const e = new Error(err.message || 'This feature requires Confero Premium.');
+      e.premiumRequired = true;
+      throw e;
     }
     const e = new Error(err.error || `Backend suggestion failed (${res.status})`);
     e.attempts = err.attempts; // carry the provider trace for the QA log

@@ -5,6 +5,10 @@ const config = {
   port: Number(process.env.PORT || 8787),
   jwtSecret: process.env.JWT_SECRET || 'dev-insecure-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '30d',
+  // Persistent user store. Set MONGODB_URI (e.g. a free MongoDB Atlas cluster) in
+  // production so accounts/plans/sessions survive restarts. Left empty in local
+  // dev, the store falls back to a JSON file (data/users.json).
+  mongoUri: process.env.MONGODB_URI || '',
   // ── Which AI provider generates the suggestions ──────────────────────────
   // Switch providers by changing CHAT_PROVIDER (in render.yaml or the Render
   // dashboard) and pushing — no code change. Each provider just needs its own
@@ -94,6 +98,25 @@ const config = {
 
 config.googleEnabled = Boolean(config.googleClientId && config.googleClientSecret);
 
+// PayPal billing — optional. When the client id/secret + plan id are set, the
+// in-app "Upgrade to Premium" button opens a real PayPal approval page and the
+// webhook flips the user's plan to 'premium' on payment. When empty, the checkout
+// endpoint returns a friendly "billing isn't set up yet" message instead of a
+// broken flow (mirrors how Google sign-in degrades).
+config.paypalClientId = process.env.PAYPAL_CLIENT_ID || '';
+config.paypalClientSecret = process.env.PAYPAL_CLIENT_SECRET || '';
+// The recurring subscription Plan id for Premium (P-..., created in the PayPal
+// dashboard under a Product/Plan). Subscriptions need an existing plan id.
+config.paypalPlanId = process.env.PAYPAL_PLAN_ID || '';
+// Verifies webhook signatures so only PayPal can flip a plan to premium. Copy it
+// from the PayPal dashboard's webhook you create (a long numeric-ish id). When
+// unset, webhooks are accepted without verification (dev only — never in prod).
+config.paypalWebhookId = process.env.PAYPAL_WEBHOOK_ID || '';
+// 'sandbox' (test money) or 'live' (real money). Defaults to sandbox so a
+// misconfigured deploy never charges anyone real.
+config.paypalEnv = (process.env.PAYPAL_ENV || 'sandbox').toLowerCase();
+config.billingEnabled = Boolean(config.paypalClientId && config.paypalClientSecret && config.paypalPlanId);
+
 // Outbound email (password-reset links) — optional. When SMTP is set, reset
 // emails send for real; when empty, the reset link is logged to the server
 // console instead (dev fallback) so the flow is testable without an email account.
@@ -103,6 +126,12 @@ config.smtpUser = process.env.SMTP_USER || '';
 config.smtpPass = process.env.SMTP_PASS || '';
 config.smtpFrom = process.env.SMTP_FROM || 'Confero <no-reply@confero.app>';
 config.emailEnabled = Boolean(config.smtpHost && config.smtpUser && config.smtpPass);
+
+// Passwordless email one-time-code login. The 6-digit code is emailed (or logged
+// to the console in dev when SMTP is unset) and expires quickly. These knobs bound
+// abuse: short TTL and a small per-code attempt cap.
+config.otpTtlMs = Number(process.env.OTP_TTL_MS || 10 * 60 * 1000); // 10 minutes
+config.otpMaxAttempts = Number(process.env.OTP_MAX_ATTEMPTS || 5);
 
 if (!config.groqApiKey) {
   console.warn('[config] GROQ_API_KEY is empty — /api endpoints will fail until it is set in server/.env');

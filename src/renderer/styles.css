@@ -112,6 +112,19 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 }
 .mode-chip:hover { background: var(--surface-hover); }
 
+/* Upgrade pill — only shown to free users (JS toggles .hidden) */
+.upgrade-pill {
+  -webkit-app-region: no-drag;
+  display: inline-flex; align-items: center; gap: 4px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff; font-size: 11px; font-weight: 680; letter-spacing: 0.02em;
+  padding: 4px 10px; border: none; border-radius: 20px; cursor: pointer;
+  box-shadow: 0 3px 12px rgba(124,92,255,0.42); transition: var(--t);
+}
+.upgrade-pill:hover { filter: brightness(1.08); }
+.upgrade-pill.hidden { display: none; }
+.upgrade-pill.busy { opacity: 0.65; cursor: default; }
+
 .btn-icon {
   -webkit-app-region: no-drag;
   display: flex; align-items: center; justify-content: center;
@@ -142,6 +155,14 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 .mode-item .mi-blurb { font-size: 10.5px; color: var(--text-muted); margin-top: 1px; line-height: 1.35; }
 .mode-item.active { background: var(--accent-soft); }
 .mode-item.active .mi-label { color: #cbbcff; }
+/* Locked (premium) mode card for free users — dimmed with a lock badge. */
+.mode-item.locked .mi-emoji { opacity: 0.6; }
+.mode-item.locked .mi-label { color: var(--text-muted); }
+.mode-item .mi-lock {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.03em;
+  color: #cbbcff; background: var(--accent-soft);
+  padding: 1px 5px; border-radius: 6px; margin-left: 4px; white-space: nowrap;
+}
 
 .mode-context {
   border-top: 1px solid var(--border); margin-top: 6px; padding: 9px 9px 6px;
@@ -595,6 +616,42 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 }
 .gate-skip:hover { color: var(--text); }
 .gate-disclaimer { font-size: 10px; color: rgba(255,184,77,0.75); line-height: 1.5; text-align: center; margin-top: -4px; }
+
+/* First-run Ethical Use Agreement — sits above every other modal. */
+.agreement-cover { z-index: 60; }
+.agreement-cover.hidden { display: none; }
+.agreement-card { max-width: 380px; }
+.agreement-head { display: flex; align-items: center; gap: 9px; }
+.agreement-badge {
+  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent);
+}
+.agreement-terms {
+  max-height: 190px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 12px; font-size: 11.5px; color: var(--text-muted); line-height: 1.55;
+}
+.agreement-terms:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,0.15); }
+.agreement-terms p { margin: 0 0 6px; }
+.agreement-terms ul { margin: 0 0 6px; padding-left: 16px; display: flex; flex-direction: column; gap: 6px; }
+.agreement-terms li { padding-left: 2px; }
+.agreement-terms b { color: var(--text); }
+.agreement-fine { font-style: italic; opacity: 0.85; margin-top: 8px !important; margin-bottom: 0 !important; }
+.agreement-check {
+  -webkit-app-region: no-drag;
+  display: flex; align-items: flex-start; gap: 9px; cursor: pointer;
+  font-size: 12px; color: var(--text); line-height: 1.45;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 11px; transition: var(--t);
+}
+.agreement-check:hover { border-color: var(--accent); }
+.agreement-check input[type="checkbox"] {
+  -webkit-app-region: no-drag;
+  flex: 0 0 auto; width: 16px; height: 16px; margin-top: 1px; cursor: pointer;
+  accent-color: var(--accent);
+}
+.agreement-check b { color: var(--accent); }
 
 /* Zen idle: nothing captured yet → no empty furniture, one quiet line. */
 .zen-hint { display: none; }

@@ -91,6 +91,7 @@ contextBridge.exposeInMainWorld('stealthAPI', {
 
   setModel: (provider) => ipcRenderer.invoke('model:set', provider),
   getAccount: () => ipcRenderer.invoke('account:get'),
+  startUpgrade: () => ipcRenderer.invoke('billing:start-upgrade'),
   onPlanChanged: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('account:plan', listener);

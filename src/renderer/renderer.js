@@ -18,6 +18,7 @@ const clearBtn = document.getElementById('clearBtn');
 const closeBtn = document.getElementById('closeBtn');
 const errorBanner = document.getElementById('error-banner');
 const modeChip = document.getElementById('modeChip');
+const upgradeBtn = document.getElementById('upgradeBtn');
 const modeEmoji = document.getElementById('modeEmoji');
 const modeLabel = document.getElementById('modeLabel');
 const modeMenu = document.getElementById('modeMenu');
@@ -462,8 +463,38 @@ function openUpsell(message) {
 }
 upsellClose.addEventListener('click', () => upsellModal.classList.add('hidden'));
 stageUpsellHint.addEventListener('click', () =>
-  openUpsell('Interviewers never ask just one question. Pro keeps up with every follow-up.')
+  openUpsell('Interviewers never ask just one question. Premium keeps up with every follow-up.')
 );
+
+// ── Upgrade to Premium (Stripe checkout in the browser) ──
+// The pill only shows for free users; once premium, it hides.
+function updateUpgradeUi() {
+  if (!upgradeBtn) return;
+  upgradeBtn.classList.toggle('hidden', plan === 'premium');
+}
+let upgrading = false;
+async function startUpgrade() {
+  if (upgrading) return;
+  upgrading = true;
+  if (upgradeBtn) { upgradeBtn.classList.add('busy'); upgradeBtn.textContent = 'Opening…'; }
+  try {
+    const res = await window.stealthAPI.startUpgrade();
+    if (res && res.error) {
+      openUpsell(res.error);
+    } else {
+      // Checkout opened in the browser. Main polls /api/me and pushes account:plan
+      // when payment lands, which re-renders everything via applyPlan.
+      openUpsell('Complete your upgrade in the browser tab that just opened. Premium unlocks here automatically once payment goes through.');
+    }
+  } catch (err) {
+    openUpsell(err.message || 'Could not start the upgrade. Please try again.');
+  } finally {
+    upgrading = false;
+    if (upgradeBtn) { upgradeBtn.classList.remove('busy'); upgradeBtn.textContent = '✦ Upgrade'; }
+  }
+}
+if (upgradeBtn) upgradeBtn.addEventListener('click', startUpgrade);
+updateUpgradeUi();
 
 // ── Mock-interview consent (practice yes, live interview no) ──
 let consentNext = null;
@@ -487,13 +518,45 @@ consentLive.addEventListener('click', () => {
 consentExit.addEventListener('click', () => window.stealthAPI.closeApp());
 const needsConsent = () => activeModeId === 'interview' && !consentedThisRun;
 
+// ── First-run Ethical Use Agreement ──
+// Must be accepted (checkbox ticked) before the app is usable. Acceptance is
+// persisted and versioned — bump AGREEMENT_VERSION to force re-acceptance if the
+// terms materially change. The modal starts visible in the HTML so there's no
+// flash of the app behind it; we dismiss it here if it was already accepted.
+(function initAgreementGate() {
+  const AGREEMENT_VERSION = '1';
+  const KEY = 'confero.agreementAccepted';
+  const gate = document.getElementById('agreementGate');
+  const checkbox = document.getElementById('agreementCheckbox');
+  const acceptBtn = document.getElementById('agreementAccept');
+  const declineBtn = document.getElementById('agreementDecline');
+  if (!gate) return;
+
+  let accepted = false;
+  try { accepted = localStorage.getItem(KEY) === AGREEMENT_VERSION; } catch (e) {}
+  if (accepted) { gate.classList.add('hidden'); return; }
+
+  checkbox.addEventListener('change', () => { acceptBtn.disabled = !checkbox.checked; });
+  acceptBtn.addEventListener('click', () => {
+    if (!checkbox.checked) return;
+    try { localStorage.setItem(KEY, AGREEMENT_VERSION); } catch (e) {}
+    gate.classList.add('hidden');
+  });
+  declineBtn.addEventListener('click', () => window.stealthAPI.closeApp());
+})();
+
 // ── Init ──
 window.stealthAPI.getConfig().then((cfg) => { titleEl.textContent = cfg.productName; });
 // The plan drives layout, not just copy: the answer stage is Pro-only, so focus
 // mode needs to know which pane is the primary object. Mirror it onto <div id=app>.
 function applyPlan(p) {
   plan = p || 'free';
-  appEl.classList.toggle('free', plan !== 'pro');
+  const isPremium = plan === 'premium';
+  appEl.classList.toggle('free', !isPremium);
+  // Re-render the mode menu so premium cards lock/unlock, and reflect the plan on
+  // the upgrade button, whenever the plan changes (e.g. after a successful upgrade).
+  if (Array.isArray(modes) && modes.length) renderModeMenu(activeModeId);
+  if (typeof updateUpgradeUi === 'function') updateUpgradeUi();
 }
 applyPlan(plan); // paint the free layout until the backend says otherwise
 window.stealthAPI.getAccount().then(({ plan: p }) => applyPlan(p)).catch(() => {});
@@ -599,13 +662,23 @@ function updateCodeAssistBtn() {
   codeAssistBtn.style.display = isCode ? '' : 'none';
 }
 function renderModeMenu(activeId) {
-  modeItemsList.innerHTML = modes.map((m) => `
-    <div class="mode-item ${m.id === activeId ? 'active' : ''}" data-id="${m.id}">
+  const isPremium = plan === 'premium';
+  modeItemsList.innerHTML = modes.map((m) => {
+    const locked = m.premium && !isPremium;
+    return `
+    <div class="mode-item ${m.id === activeId ? 'active' : ''} ${locked ? 'locked' : ''}" data-id="${m.id}" data-locked="${locked ? '1' : ''}">
       <span class="mi-emoji">${m.emoji}</span>
-      <div><div class="mi-label">${escapeHtml(m.label)}</div><div class="mi-blurb">${escapeHtml(m.blurb)}</div></div>
-    </div>`).join('');
+      <div><div class="mi-label">${escapeHtml(m.label)}${locked ? ' <span class="mi-lock">🔒 Premium</span>' : ''}</div><div class="mi-blurb">${escapeHtml(m.blurb)}</div></div>
+    </div>`;
+  }).join('');
   modeItemsList.querySelectorAll('.mode-item').forEach((el) => {
     el.addEventListener('click', async () => {
+      // A locked premium card doesn't switch modes — it opens the upgrade flow.
+      if (el.getAttribute('data-locked')) {
+        modeMenu.classList.add('hidden');
+        startUpgrade();
+        return;
+      }
       const id = el.getAttribute('data-id');
       await window.stealthAPI.setActiveMode(id);
       activeModeId = id;

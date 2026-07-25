@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Confero Premium</title>
+  <style>
+    :root {
+      --bg-1: #0e0b1a; --bg-2: #16111f; --text: #f4f2fb;
+      --muted: rgba(244,242,251,0.55); --accent: #7c5cff; --accent-2: #ff6bd6;
+      --border: rgba(255,255,255,0.1);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+    body {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(130% 120% at 20% 0%, var(--bg-2), var(--bg-1) 70%);
+      color: var(--text); padding: 24px; text-align: center;
+    }
+    .card {
+      width: 100%; max-width: 420px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border); border-radius: 18px;
+      padding: 40px 32px; box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    }
+    .mark { width: 44px; height: 44px; border-radius: 12px; margin: 0 auto 18px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 0 22px rgba(124,92,255,0.6); }
+    h2 { font-size: 20px; font-weight: 700; margin-bottom: 10px; }
+    p { color: var(--muted); font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="mark"></div>
+    <h2 id="title">You're on Confero Premium 🎉</h2>
+    <p id="body">Payment received. Return to the Confero app — DSA &amp; System Design and all Premium features are unlocking now. You can close this tab.</p>
+  </div>
+  <script>
+    // Stripe's cancel_url routes here with ?canceled=1 — show a softer message.
+    if (new URLSearchParams(location.search).get('canceled')) {
+      document.getElementById('title').textContent = 'Checkout canceled';
+      document.getElementById('body').textContent = 'No charge was made. You can return to the app and upgrade anytime.';
+    }
+  </script>
+</body>
+</html>

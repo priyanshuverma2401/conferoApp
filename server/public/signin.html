@@ -97,8 +97,18 @@
       <a id="forgotLink" class="forgot">Forgot password?</a>
     </div>
 
+    <div id="codeField" style="display:none">
+      <label for="code">6-digit code</label>
+      <input id="code" type="text" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code" />
+      <a id="resendLink" class="forgot">Send a new code</a>
+    </div>
+
     <button id="submitBtn" class="cta">Continue</button>
     <div id="status" class="status"></div>
+
+    <div class="toggle" id="otpToggle">
+      <a id="otpLink">Email me a sign-in code instead</a>
+    </div>
 
     <div class="toggle">
       <span id="toggleText">New to Confero?</span>
@@ -123,6 +133,11 @@
     const googleBtn = document.getElementById('googleBtn');
     const social = document.querySelector('.social');
     const divider = document.querySelector('.divider');
+    const codeField = document.getElementById('codeField');
+    const codeEl = document.getElementById('code');
+    const otpToggle = document.getElementById('otpToggle');
+    const otpLink = document.getElementById('otpLink');
+    const resendLink = document.getElementById('resendLink');
 
     function isSafeRedirect(url) { return /^http:\/\/(127\.0\.0\.1|localhost):\d+/.test(url); }
     function setStatus(text, kind) { statusEl.textContent = text; statusEl.className = `status ${kind || ''}`; }
@@ -130,26 +145,62 @@
     function setMode(next) {
       mode = next;
       const forgot = mode === 'forgot';
-      passwordField.style.display = forgot ? 'none' : '';
-      social.style.display = forgot ? 'none' : '';
-      divider.style.display = forgot ? 'none' : '';
-      heading.textContent = forgot ? 'Reset your password' : 'Continue to Confero';
-      submitBtn.textContent = forgot ? 'Send reset link' : (mode === 'login' ? 'Sign in' : 'Create account');
+      const otpEmail = mode === 'otp-email';
+      const otpCode = mode === 'otp-code';
+      const isOtp = otpEmail || otpCode;
+      // Password only for classic login/signup; code input only in the OTP verify step.
+      passwordField.style.display = (forgot || isOtp) ? 'none' : '';
+      codeField.style.display = otpCode ? '' : 'none';
+      // Google/social + the "or" divider only make sense on the primary sign-in views.
+      social.style.display = (forgot || isOtp) ? 'none' : '';
+      divider.style.display = (forgot || isOtp) ? 'none' : '';
+      emailEl.readOnly = otpCode; // lock the email once a code has been sent to it
+      // The "email me a code" entry point only shows on the password views.
+      otpToggle.style.display = (mode === 'login' || mode === 'signup') ? '' : 'none';
+
+      if (forgot) heading.textContent = 'Reset your password';
+      else if (isOtp) heading.textContent = 'Sign in with an email code';
+      else heading.textContent = 'Continue to Confero';
+
+      submitBtn.textContent = forgot ? 'Send reset link'
+        : otpEmail ? 'Send code'
+        : otpCode ? 'Verify & sign in'
+        : (mode === 'login' ? 'Sign in' : 'Create account');
+
       if (forgot) {
         toggleText.textContent = 'Remembered it?';
+        toggleLink.textContent = 'Back to sign in';
+      } else if (isOtp) {
+        toggleText.textContent = 'Prefer a password?';
         toggleLink.textContent = 'Back to sign in';
       } else {
         toggleText.textContent = mode === 'login' ? 'New to Confero?' : 'Already have an account?';
         toggleLink.textContent = mode === 'login' ? 'Create an account' : 'Sign in';
       }
       setStatus('');
+      if (otpCode) codeEl.focus();
     }
 
     toggleLink.addEventListener('click', () => {
-      if (mode === 'forgot') setMode('login');
+      if (mode === 'forgot' || mode === 'otp-email' || mode === 'otp-code') setMode('login');
       else setMode(mode === 'login' ? 'signup' : 'login');
     });
     forgotLink.addEventListener('click', () => setMode('forgot'));
+    otpLink.addEventListener('click', () => setMode('otp-email'));
+
+    // Ask the backend to (re)send a code to the entered email.
+    async function sendCode(email) {
+      const res = await fetch('/api/auth/otp/request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not send a code.');
+    }
+    resendLink.addEventListener('click', async () => {
+      try { setStatus('Sending a new code...', ''); await sendCode(emailEl.value.trim()); setStatus('New code sent.', 'ok'); }
+      catch (err) { setStatus(err.message, 'err'); }
+    });
 
     googleBtn.addEventListener('click', () => {
       location.href = `/api/auth/google/start?redirect=${encodeURIComponent(redirect)}`;
@@ -168,6 +219,29 @@
             body: JSON.stringify({ email }),
           });
           setStatus('If an account exists for that email, a reset link is on its way.', 'ok');
+          return;
+        }
+
+        // Passwordless: step 1 emails a code, step 2 verifies it and signs in.
+        if (mode === 'otp-email') {
+          await sendCode(email);
+          setStatus(`We sent a 6-digit code to ${email}.`, 'ok');
+          setMode('otp-code');
+          emailEl.value = email; // preserve it (setMode doesn't clear inputs)
+          return;
+        }
+        if (mode === 'otp-code') {
+          const code = codeEl.value.trim();
+          if (!code) { setStatus('Enter the 6-digit code.', 'err'); return; }
+          const res = await fetch('/api/auth/otp/verify', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, code }),
+          });
+          const data = await res.json();
+          if (!res.ok) { setStatus(data.error || 'That code did not work.', 'err'); return; }
+          setStatus('Success! Returning to the app...', 'ok');
+          if (redirect && isSafeRedirect(redirect)) location.href = `${redirect}?token=${encodeURIComponent(data.token)}`;
+          else setStatus('Signed in. You can close this window.', 'ok');
           return;
         }
 
@@ -190,7 +264,8 @@
     }
     submitBtn.addEventListener('click', submit);
     passwordEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-    emailEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && mode === 'forgot') submit(); });
+    codeEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    emailEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (mode === 'forgot' || mode === 'otp-email')) submit(); });
 
     if (params.get('error')) setStatus(decodeURIComponent(params.get('error')), 'err');
   </script>
