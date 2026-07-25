@@ -9,5 +9,5 @@
 // In development (unpackaged, `npx electron .`) this is ignored and the app uses
 // http://localhost:8787. A CONFERO_BACKEND_URL env var overrides both.
 module.exports = {
-  backendUrl: 'https://REPLACE-WITH-YOUR-BACKEND-URL.onrender.com',
+  backendUrl: 'https://confero-server.onrender.com',
 };
