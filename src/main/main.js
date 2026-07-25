@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { app, session, desktopCapturer, screen, ipcMain, dialog, shell, globalShortcut } = require('electron');
 const { initMain: initLoopbackAudio } = require('electron-audio-loopback');
-const { loadConfig, isSetupComplete, PRODUCT_NAME } = require('./config/configLoader');
+const { loadConfig, isSetupComplete, PRODUCT_NAME, resolveBackendUrl } = require('./config/configLoader');
 const { createOverlayWindow } = require('./windows/overlayWindow');
 const { createIndicatorWindow } = require('./windows/indicatorWindow');
 const { createOnboardingWindow } = require('./windows/onboardingWindow');
@@ -71,7 +71,7 @@ function registerGlobalIpc() {
 function registerOnboardingIpc() {
   ipcMain.handle('onboarding:start-signin', async () => {
     try {
-      const backendUrl = process.env.CONFERO_BACKEND_URL || 'http://localhost:8787';
+      const backendUrl = resolveBackendUrl();
       const { token } = await startSignin({ backendUrl });
       sessionStore.saveSession({ token });
       return { ok: true };

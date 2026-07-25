@@ -53,6 +53,16 @@ function resolveEnvPath() {
 const ENV_PATH = resolveEnvPath();
 require('dotenv').config({ path: ENV_PATH });
 
+// Where the app reaches the backend. Dev talks to a local server; a packaged/
+// distributed build talks to the deployed URL baked into appConfig.js at build
+// time. An explicit CONFERO_BACKEND_URL env var overrides either. Exported so the
+// browser sign-in flow resolves the SAME url — otherwise a packaged app opens
+// http://localhost:8787 for sign-in, which is unreachable on a user's machine.
+function resolveBackendUrl() {
+  return process.env.CONFERO_BACKEND_URL
+    || (app.isPackaged ? require('./appConfig').backendUrl : 'http://localhost:8787');
+}
+
 function loadConfig() {
   const config = {
     productName: PRODUCT_NAME,
@@ -61,11 +71,7 @@ function loadConfig() {
     // for development or advanced users.
     llmProvider: process.env.LLM_PROVIDER || 'backend',
     transcriptionProvider: process.env.TRANSCRIPTION_PROVIDER || 'backend',
-    // Dev talks to a local backend; a packaged/distributed build talks to the
-    // deployed one baked in at build time (see config/appConfig.js). An explicit
-    // CONFERO_BACKEND_URL env var overrides either.
-    backendUrl: process.env.CONFERO_BACKEND_URL
-      || (app.isPackaged ? require('./appConfig').backendUrl : 'http://localhost:8787'),
+    backendUrl: resolveBackendUrl(),
 
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
     ollamaModel: process.env.OLLAMA_MODEL || 'llama3.1:8b-instruct-q4_K_M',
@@ -160,4 +166,4 @@ function setEnvValue(key, value) {
   process.env[key] = value;
 }
 
-module.exports = { loadConfig, isSetupComplete, setEnvValue, ENV_PATH, PRODUCT_NAME };
+module.exports = { loadConfig, isSetupComplete, setEnvValue, ENV_PATH, PRODUCT_NAME, resolveBackendUrl };

@@ -1,6 +1,6 @@
 {
   "name": "confero",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "productName": "Confero",
   "description": "Real-time AI meeting/teaching assistant: live transcription, contextual talking points, and a private overlay only you see.",
   "main": "src/main/main.js",
