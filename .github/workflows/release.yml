@@ -57,7 +57,7 @@ jobs:
           name: ${{ matrix.os }}-installers
           path: |
             dist/*.exe
-            dist/*.dmg
+            dist/*.zip
             dist/*.AppImage
             dist/*.deb
           if-no-files-found: warn
@@ -68,7 +68,7 @@ jobs:
         with:
           files: |
             dist/*.exe
-            dist/*.dmg
+            dist/*.zip
             dist/*.AppImage
             dist/*.deb
         env:
