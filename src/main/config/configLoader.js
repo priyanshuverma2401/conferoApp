@@ -103,14 +103,34 @@ function loadConfig() {
     suggestionIntervalMs: Number(process.env.SUGGESTION_INTERVAL_MS || 18000),
   };
 
-  if (config.llmProvider === 'claude' && !config.anthropicApiKey) {
+  const needsGroq = config.llmProvider === 'groq' || config.transcriptionProvider === 'groq';
+  const needsClaude = config.llmProvider === 'claude';
+  const missingKey = (needsGroq && !config.groqApiKey) || (needsClaude && !config.anthropicApiKey);
+
+  // In a packaged/distributed build the safe default is always Confero's own
+  // backend (it holds the keys). If a direct/BYOK provider ends up selected
+  // without its key — e.g. from a stale seeded .env left by an older build, or a
+  // half-filled config — DON'T crash the app on launch ("GROQ_API_KEY is empty").
+  // Silently fall back to backend mode so a downloaded user can still sign in and
+  // use the app. Developers (unpackaged) still get the loud error below.
+  if (missingKey && app.isPackaged) {
+    console.warn(
+      '[configLoader] a direct provider was selected without its API key; ' +
+      'falling back to backend mode (the app routes AI through Confero\'s server).'
+    );
+    config.llmProvider = 'backend';
+    config.transcriptionProvider = 'backend';
+    return config;
+  }
+
+  if (needsClaude && !config.anthropicApiKey) {
     throw new Error(
       `LLM_PROVIDER is set to "claude" but ANTHROPIC_API_KEY is empty in ${ENV_PATH}. ` +
       'Add a key from console.anthropic.com, or set LLM_PROVIDER=ollama.'
     );
   }
 
-  if ((config.llmProvider === 'groq' || config.transcriptionProvider === 'groq') && !config.groqApiKey) {
+  if (needsGroq && !config.groqApiKey) {
     throw new Error(
       `LLM_PROVIDER or TRANSCRIPTION_PROVIDER is set to "groq" but GROQ_API_KEY is empty in ${ENV_PATH}. ` +
       'Add a key from console.groq.com.'
