@@ -23,6 +23,8 @@ function registerIpcHandlers({ overlayWin, indicatorWin, config }) {
     appState.lastQA = null;
     appState.sessionAnswers = [];
     appState.recentAnswers = [];
+    appState.sessionSummary = null;
+    appState.archivedAt = null;
     return { ok: true };
   });
 

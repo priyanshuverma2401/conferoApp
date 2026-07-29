@@ -21,6 +21,7 @@ const { listModes, getMode, setModes } = require('./modes/modes');
 const promptBuilder = require('./llm/promptBuilder');
 const appState = require('./state/appState');
 const sessionsArchive = require('./state/sessionsArchive');
+const sessionReport = require('./state/sessionReport');
 const qaLog = require('./state/qaLog');
 
 const SUGGESTION_WINDOW_MS = 90 * 1000;
@@ -534,6 +535,7 @@ function startMainApp() {
       appState.recentAnswers = [];
       appState.sawSystemAudio = false;
       appState.sessionAnswers = [];
+      appState.sessionSummary = null;
       if (pendingQuestion) { clearTimeout(pendingQuestion.timer); pendingQuestion = null; }
       lastFired = null;
       const s = userSettingsStore.getCachedSettings();
@@ -558,6 +560,9 @@ function startMainApp() {
             const isQuestion = !readBack && canTrigger && looksLikeQuestion(text);
             const payload = { source, text, timestamp: Date.now(), readBack, isQuestion };
             appState.transcript.push(payload);
+            // Fresh speech after an "End session" archive — this session has moved
+            // on, so the next Start must save it again rather than skip it.
+            appState.archivedAt = null;
             send('transcript:chunk', payload);
             qaLog.log('transcript', { source, readBack, isQuestion, canTrigger, text: qaLog.preview(text) });
             if (canTrigger && !readBack) onThemUtterance(text, isQuestion);
@@ -760,6 +765,71 @@ function startMainApp() {
     }
   });
 
+  // ── End of session: transcript + summary the user can copy ────────────────
+  // The closing act of a call. The transcript is assembled locally (instant);
+  // the summary is one LLM pass — or two for a long meeting, which is chunked
+  // and merged in sessionReport. Ending also ARCHIVES the session right away,
+  // with its summary, so it survives the app being closed instead of only being
+  // saved when a later session starts. Safe to call twice (a retry after a
+  // failed summary re-uses the existing archive rather than duplicating it).
+  ipcMain.handle('session:end', async () => {
+    const settings = userSettingsStore.getCachedSettings();
+    const modeId = settings.activeMode;
+    const mode = getMode(modeId);
+    const modeLabel = mode ? mode.label : '';
+    const lines = cleanTranscript();
+    const stats = sessionReport.stats(lines);
+    const answered = appState.sessionAnswers.filter((a) => a.kind === 'answer' || a.kind === 'code').length;
+    if (!lines.length) {
+      return { empty: true, transcript: '', summary: '', stats, answered, modeLabel };
+    }
+
+    const transcript = sessionReport.formatTranscript(lines, { modeId, modeLabel, productName: PRODUCT_NAME });
+    qaLog.log('session_end', { mode: modeId, lines: lines.length, answered, ms: stats.durationMs });
+
+    let summary = '';
+    let error = null;
+    const t0 = Date.now();
+    try {
+      summary = await sessionReport.summarize({
+        llmClient,
+        promptBuilder,
+        lines,
+        modeId,
+        modeLabel,
+        modeContext: activeModeContext(),
+        documentContext: docSummary(),
+      });
+    } catch (err) {
+      error = err.message;
+      qaLog.log('session_summary_error', { error: err.message });
+    }
+    if (summary) {
+      appState.sessionSummary = summary;
+      qaLog.log('session_summary', { ms: Date.now() - t0, chars: summary.length });
+    }
+
+    let saved = null;
+    if (!appState.archivedAt) {
+      try {
+        saved = await sessionsArchive.archiveSession({
+          transcript: appState.transcript,
+          answers: appState.sessionAnswers,
+          modeId,
+          modeLabel,
+          modeContext: settings.modeContext && settings.modeContext[modeId],
+          docFileName: (settings.documentContext && settings.documentContext[modeId] || {}).fileName,
+          summary: appState.sessionSummary,
+        });
+        if (saved) appState.archivedAt = Date.now();
+      } catch (err) {
+        console.error('[sessions] archive failed:', err.message);
+      }
+    }
+
+    return { transcript, summary, error, stats, answered, modeLabel, saved };
+  });
+
   // ── Sessions: auto-archive the old, open fresh ────────────────────────────
   // Called by the renderer before starting a new capture when leftover content
   // exists: the previous session is saved under a human name (from the doc /
@@ -768,23 +838,30 @@ function startMainApp() {
     const settings = userSettingsStore.getCachedSettings();
     const mode = getMode(settings.activeMode);
     let saved = null;
-    try {
-      saved = await sessionsArchive.archiveSession({
-        transcript: appState.transcript,
-        answers: appState.sessionAnswers,
-        modeId: settings.activeMode,
-        modeLabel: mode ? mode.label : '',
-        modeContext: settings.modeContext && settings.modeContext[settings.activeMode],
-        docFileName: (settings.documentContext && settings.documentContext[settings.activeMode] || {}).fileName,
-      });
-    } catch (err) {
-      console.error('[sessions] archive failed:', err.message);
+    // Already archived by "End session" and nothing said since — saving again
+    // would put the same conversation in history twice.
+    if (!appState.archivedAt) {
+      try {
+        saved = await sessionsArchive.archiveSession({
+          transcript: appState.transcript,
+          answers: appState.sessionAnswers,
+          modeId: settings.activeMode,
+          modeLabel: mode ? mode.label : '',
+          modeContext: settings.modeContext && settings.modeContext[settings.activeMode],
+          docFileName: (settings.documentContext && settings.documentContext[settings.activeMode] || {}).fileName,
+          summary: appState.sessionSummary,
+        });
+      } catch (err) {
+        console.error('[sessions] archive failed:', err.message);
+      }
     }
     appState.transcript = [];
     appState.runningSummary = '';
     appState.lastQA = null;
     appState.sessionAnswers = [];
     appState.recentAnswers = [];
+    appState.sessionSummary = null;
+    appState.archivedAt = null;
     appState.activeCodingProblem = null; // fresh session → drop the anchored problem
     return { ok: true, saved };
   });

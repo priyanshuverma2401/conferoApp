@@ -3,7 +3,11 @@ const promptBuilder = require('../promptBuilder');
 // Anthropic's API takes the system prompt as a separate top-level field, not as
 // a message with role:'system' — extract it here so callers can use the same
 // uniform messages-array shape as the other providers.
-async function chatCompletion(messages, { apiKey, model }) {
+// A spoken answer fits in 200 tokens; an end-of-session summary is a document
+// and would be cut off mid-heading at that budget.
+const TASK_TOKENS = { summary: 1100, notes: 700 };
+
+async function chatCompletion(messages, { apiKey, model, task }) {
   const systemMessage = messages.find((m) => m.role === 'system');
   const conversation = messages.filter((m) => m.role !== 'system');
 
@@ -16,7 +20,7 @@ async function chatCompletion(messages, { apiKey, model }) {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 200,
+      max_tokens: TASK_TOKENS[task] || 200,
       system: systemMessage ? systemMessage.content : undefined,
       messages: conversation,
     }),

@@ -204,9 +204,96 @@ function buildRecapPrompt({ transcriptWindow }) {
   return `Here is the session transcript so far:\n${lines}\n\nWrite a concise recap: 3-5 short bullets covering the key points discussed, any decisions, and clear next steps / what to cover next. Bullets only.`;
 }
 
+// ── End-of-session report ────────────────────────────────────────────────────
+// What a summary should emphasise depends on what the session WAS: an interview
+// debrief is about the questions asked and how they landed; a meeting is about
+// decisions and who owes what. Same skeleton, mode-specific middle section.
+const SUMMARY_SHAPES = {
+  interview: {
+    heading: 'QUESTIONS & HOW THEY WERE ANSWERED',
+    focus: `Every question the interviewer asked, with a one-line note on how it was answered.
+Where the answer was strong, and where it was thin, vague, or missed.
+What to prepare before the next round.`,
+  },
+  dsa: {
+    heading: 'PROBLEMS & APPROACHES',
+    focus: `Each coding or design problem discussed, and the approach that was settled on.
+Complexity and trade-offs that came up.
+Anything left unresolved or worth practicing again.`,
+  },
+  professional: {
+    heading: 'DECISIONS',
+    focus: `Decisions that were made, and by whom when it was stated.
+Commitments, owners, and dates that were actually named.
+Open questions or anything blocked.`,
+  },
+  tutoring: {
+    heading: 'WHAT WAS COVERED',
+    focus: `Concepts taught and how they were explained.
+Where the learner struggled or asked for clarification.
+Homework, practice, or next topics that were agreed.`,
+  },
+  general: {
+    heading: 'DECISIONS & CONCLUSIONS',
+    focus: `The main topics discussed and any conclusions reached.
+Commitments or next steps that were named.
+Open questions.`,
+  },
+};
+
+// Long sessions are summarized in two passes; this is pass one, per chunk.
+function buildTranscriptNotesPrompt({ transcriptText, part, total }) {
+  return `This is part ${part} of ${total} of a live conversation transcript (machine-transcribed, so
+names and jargon may be slightly misheard — read them charitably, and never invent detail
+that isn't there).
+
+${transcriptText}
+
+Write dense factual notes on THIS part only: what was asked, what was answered, any
+decisions, numbers, names, commitments, and open threads. Short bullets. No preamble,
+no summary of the summary — these notes get merged with the other parts afterwards.`;
+}
+
+function buildSessionSummaryPrompt({ transcriptText, notes, modeId, modeLabel, modeContext, documentContext }) {
+  const shape = SUMMARY_SHAPES[modeId] || SUMMARY_SHAPES.general;
+  const contextPart = modeContext ? `## Session context (set before the session)\n${modeContext}\n\n` : '';
+  const docPart = documentContext ? `## Background document\n${documentContext}\n\n` : '';
+  const body = notes
+    ? `## Notes taken across the full session, in order\n${notes.join('\n\n')}`
+    : `## Full transcript\n${transcriptText}`;
+
+  return `${contextPart}${docPart}${body}
+
+Write the closing summary of this ${modeLabel || 'session'} for the person who was in it.
+Focus on:
+${shape.focus}
+
+Ground every line in the material above. The transcript is machine-generated, so treat a
+garbled word as the closest real term from the context — but never invent a fact, a name,
+a number, or a commitment that isn't there. If a section has nothing real to put in it,
+write "None stated." under it rather than padding.
+
+Output PLAIN TEXT in exactly this shape — these four headings, in this order, in capitals
+on their own line. No markdown, no asterisks, no preamble, no sign-off:
+
+OVERVIEW
+Two or three sentences on what this session was and how it went.
+
+KEY POINTS
+- short bullets, the substance of what was discussed
+
+${shape.heading}
+- short bullets
+
+ACTION ITEMS & NEXT STEPS
+- short bullets, each starting with a verb`;
+}
+
 module.exports = {
   DEFAULT_SYSTEM_PROMPT,
   getSystemPrompt,
+  buildSessionSummaryPrompt,
+  buildTranscriptNotesPrompt,
   buildSuggestionPrompt,
   buildMetaPrompt,
   buildDocumentSummaryPrompt,

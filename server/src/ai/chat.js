@@ -22,8 +22,32 @@ const CHAT_OPTS = { max_tokens: 300, temperature: 0.3, frequency_penalty: 0.4 };
 // primary pin the user at "Thinking..." for the full 15s before failing over.
 const REQUEST_TIMEOUT_MS = 8000;
 
+// ── Per-task generation profiles ─────────────────────────────────────────────
+// A live answer and an end-of-session summary are different jobs. The live
+// defaults (300 tokens, 8s, spoken-answer cleaners) are tuned for a conversation
+// and are wrong for a document: 300 tokens cut a four-section summary off after
+// its first heading, and the cleaners exist to protect words the user SAYS —
+// a summary is read, and its parallel bullets look like repetition to
+// stripRepetition. Profiles are server-side and selected by name, so a client
+// can't ask for an arbitrary token budget.
+const TASK_PROFILES = {
+  answer: { ...CHAT_OPTS, timeoutMs: REQUEST_TIMEOUT_MS, raw: false },
+  summary: { ...CHAT_OPTS, max_tokens: 1100, timeoutMs: 30000, raw: true },
+  notes: { ...CHAT_OPTS, max_tokens: 700, timeoutMs: 25000, raw: true },
+};
+// AsyncLocalStorage rather than a module variable: several requests are in
+// flight at once, and a summary must not widen a concurrent live answer.
+const { AsyncLocalStorage } = require('async_hooks');
+const profileStore = new AsyncLocalStorage();
+const profile = () => profileStore.getStore() || TASK_PROFILES.answer;
+// What the OpenAI-dialect body wants — the profile minus our own fields.
+function genOpts() {
+  const { max_tokens, temperature, frequency_penalty } = profile();
+  return { max_tokens, temperature, frequency_penalty };
+}
+
 function timeout() {
-  return AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  return AbortSignal.timeout(profile().timeoutMs);
 }
 
 // The interviewer said the term correctly; only the transcription mangled it,
@@ -91,7 +115,7 @@ async function openAiCompatible({ url, apiKey, model, extraHeaders = {} }, messa
   const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...extraHeaders },
-    body: JSON.stringify({ model, messages, ...CHAT_OPTS }),
+    body: JSON.stringify({ model, messages, ...genOpts() }),
     signal: timeout(),
   });
   if (!res.ok) throw upstream(url, res);
@@ -123,8 +147,8 @@ async function geminiModel(model, messages, apiKey) {
   const body = {
     contents,
     generationConfig: {
-      maxOutputTokens: CHAT_OPTS.max_tokens,
-      temperature: CHAT_OPTS.temperature,
+      maxOutputTokens: profile().max_tokens,
+      temperature: profile().temperature,
       // No frequencyPenalty here — not all Gemini models accept it, and a 400
       // on the primary would silently dump every request to the weaker fallback.
       // Flash-tier models default to spending part of the token budget on
@@ -197,7 +221,7 @@ async function anthropic(messages) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': config.anthropicApiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: config.anthropicModel, max_tokens: CHAT_OPTS.max_tokens, system: system?.content, messages: conversation }),
+    body: JSON.stringify({ model: config.anthropicModel, max_tokens: profile().max_tokens, system: system?.content, messages: conversation }),
     signal: timeout(),
   });
   if (!res.ok) throw upstream('Anthropic', res);
@@ -209,7 +233,7 @@ async function cohere(messages) {
   const res = await fetch('https://api.cohere.com/v2/chat', {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.cohereApiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: config.cohereModel, messages, max_tokens: CHAT_OPTS.max_tokens, temperature: CHAT_OPTS.temperature }),
+    body: JSON.stringify({ model: config.cohereModel, messages, max_tokens: profile().max_tokens, temperature: profile().temperature }),
     signal: timeout(),
   });
   if (!res.ok) throw upstream('Cohere', res);
@@ -274,7 +298,14 @@ const QUALITY_ORDER = [
 // Try providers in quality order (best available first), skipping any without a
 // key, and falling through on 429/timeout/error. An optional CHAT_PROVIDER just
 // pins one provider to the very front; everything else stays quality-ordered.
-async function chat(messages, { forceProvider, preferProvider } = {}) {
+async function chat(messages, { forceProvider, preferProvider, task } = {}) {
+  // `task` selects the generation profile (token budget, timeout, whether the
+  // spoken-answer cleaners apply). Unknown/absent → the live-answer default.
+  return profileStore.run(TASK_PROFILES[task] || TASK_PROFILES.answer, () =>
+    runChat(messages, { forceProvider, preferProvider }));
+}
+
+async function runChat(messages, { forceProvider, preferProvider } = {}) {
   // forceProvider (from the in-app model picker) is STRICT — only that model, no
   // silent fallback — so testing a model actually tests THAT model. If it's
   // rate-limited you get a clear error, never a different model's answer (that's
@@ -304,8 +335,10 @@ async function chat(messages, { forceProvider, preferProvider } = {}) {
       attempts.push({ provider: name, ms: Date.now() - s, ok: true, model });
       // The spoken-answer cleaners (preamble/repetition strippers) would mangle
       // code — a for-loop legitimately repeats tokens, and "def solve(" reads like
-      // a preamble. If the response carries a code fence, leave it intact.
-      const cleaned = /```/.test(text) ? text.trim() : stripCorrection(stripRepetition(stripPreamble(text)));
+      // a preamble. If the response carries a code fence, leave it intact. Same
+      // for a `raw` profile (session summaries): parallel bullets are not a
+      // stutter, and cutting one would silently truncate the document.
+      const cleaned = profile().raw || /```/.test(text) ? text.trim() : stripCorrection(stripRepetition(stripPreamble(text)));
       return {
         text: cleaned,
         provider: PROVIDER_LABELS[name] || name,

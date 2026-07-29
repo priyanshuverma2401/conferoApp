@@ -132,6 +132,10 @@
           <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1.5"/></svg>
         </button>
       </div>
+      <button id="endBtn" class="btn-sec btn-end" title="End the session and get the full transcript + summary" style="display:none;">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.5 2.5h3v11h-3M11 8H2M4.5 5L1.5 8l3 3"/></svg>
+        <span>End session</span>
+      </button>
       <button id="codeAssistBtn" class="btn-sec btn-code" title="Paste a DSA / LLD problem and get a stepwise answer" style="display:none;">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 4L2.5 8L6 12M10 4l3.5 4L10 12"/></svg>
         <span>Code assist</span>
@@ -215,7 +219,34 @@
         </div>
         <div id="sessionsList" class="sessions-list"></div>
         <div id="sessionViewer" class="session-viewer hidden"></div>
+        <div id="sessionTools" class="sv-tools hidden">
+          <button id="svCopySummary">Copy summary</button>
+          <button id="svCopyTranscript">Copy transcript</button>
+        </div>
         <button id="sessionsBack" class="gate-skip hidden">← Back to list</button>
+      </div>
+    </div>
+
+    <!-- End-of-session report: the full transcript + an AI summary of what
+         happened, both copyable. Generated on demand when the user ends. -->
+    <div id="endModal" class="modal-cover hidden">
+      <div class="gate-card end-card">
+        <div class="end-head">
+          <h2>Session ended</h2>
+          <button id="endClose" class="close-btn" title="Close">&times;</button>
+        </div>
+        <div id="endMeta" class="end-meta"></div>
+        <div class="end-tabs">
+          <button class="end-tab active" data-tab="summary">Summary</button>
+          <button class="end-tab" data-tab="transcript">Transcript</button>
+        </div>
+        <div id="endBody" class="end-body"></div>
+        <div class="end-actions">
+          <button id="endCopy" class="btn-cta"><span>Copy summary</span></button>
+          <button id="endCopyBoth" class="btn-sec">Copy both</button>
+          <button id="endRetry" class="btn-sec hidden">Retry summary</button>
+        </div>
+        <div id="endHint" class="end-hint">Saved to Past sessions.</div>
       </div>
     </div>
 

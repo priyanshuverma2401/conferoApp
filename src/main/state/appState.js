@@ -14,6 +14,13 @@ const state = {
   recentAnswers: [], // Sets of tokens from recent generated answers, for read-back detection
   sessionAnswers: [], // { kind, question?, text, at } — everything shown this session, for archiving
 
+  // End-of-session report. `sessionSummary` is the generated closing summary;
+  // `archivedAt` marks that this session is already saved to history (ending a
+  // session archives it immediately, so it survives closing the app) — cleared
+  // the moment new speech arrives, so the next Start knows to save again.
+  sessionSummary: null,
+  archivedAt: null,
+
   // Code Assist workspace (DSA / LLD rounds): the problem the interviewer put on
   // screen, pasted by the candidate. It stays anchored for the whole round so
   // every later turn — "explain your approach", "dry run [3,1,2]", "now optimize

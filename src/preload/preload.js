@@ -114,6 +114,9 @@ contextBridge.exposeInMainWorld('stealthAPI', {
     return () => ipcRenderer.removeListener('answer:quick', listener);
   },
 
+  // End of session → { transcript, summary, stats, ... } for the report modal.
+  endSession: () => ipcRenderer.invoke('session:end'),
+
   archiveAndResetSession: () => ipcRenderer.invoke('sessions:archive-and-reset'),
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   getSession: (id) => ipcRenderer.invoke('sessions:get', id),

@@ -6,7 +6,7 @@ const sessionStore = require('../../state/sessionStore');
 // is a thin authenticated proxy.
 // Returns { text, provider, detail } — provider/detail identify which model
 // actually answered (for the live "which model" indicator).
-async function chatCompletionMeta(messages, { backendUrl, forcedProvider, preferredProvider, mode }) {
+async function chatCompletionMeta(messages, { backendUrl, forcedProvider, preferredProvider, mode, task }) {
   const token = sessionStore.getToken();
   if (!token) throw new Error('Not signed in.');
 
@@ -18,8 +18,16 @@ async function chatCompletionMeta(messages, { backendUrl, forcedProvider, prefer
     },
     // provider = strict override (model picker); prefer = soft default (active
     // mode's preferred model, front of the fallback chain); mode = active mode id,
-    // so the backend can enforce premium gating (e.g. DSA) server-side.
-    body: JSON.stringify({ messages, provider: forcedProvider || undefined, prefer: preferredProvider || undefined, mode: mode || undefined }),
+    // so the backend can enforce premium gating (e.g. DSA) server-side; task =
+    // which server-side generation profile to use (a live answer is short and
+    // fast, a session summary needs room to finish).
+    body: JSON.stringify({
+      messages,
+      provider: forcedProvider || undefined,
+      prefer: preferredProvider || undefined,
+      mode: mode || undefined,
+      task: task || undefined,
+    }),
   });
 
   if (!res.ok) {

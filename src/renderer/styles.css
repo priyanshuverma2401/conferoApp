@@ -225,10 +225,20 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
   display: flex; align-items: center; gap: 7px;
   padding: 10px 12px; border-top: 1px solid var(--border);
   background: rgba(255,255,255,0.02);
+  /* In a code mode the live bar carries six controls (answer/recap/stop/end/
+     code assist/clear). Squeezed onto one row the primary CTA wrapped its own
+     label onto two lines — a second row reads far better than a broken button. */
+  flex-wrap: wrap; row-gap: 7px;
 }
 /* flex:1 (not width:100%) so the Clear button sits BESIDE these, not shoved off
    the right edge of the row. */
-.active-actions { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; }
+/* Stays on ONE line as a unit — answer/recap/stop belong together. When the row
+   runs out of space it's the trailing buttons (end/code assist/clear) that wrap
+   to a second row, via .action-bar's flex-wrap. */
+/* min-width:max-content, not 0: as a shrinkable item this group was squeezed
+   narrower than its own buttons, which then spilled over the End button next to
+   it. Held at content width, the row wraps the trailing buttons instead. */
+.active-actions { display: flex; align-items: center; gap: 7px; flex: 1; min-width: max-content; }
 .active-actions.hidden { display: none; }
 
 .btn-cta {
@@ -236,7 +246,7 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
   display: flex; align-items: center; justify-content: center; gap: 7px;
   flex: 1; height: 38px; border: none; border-radius: var(--radius);
   background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: white;
-  font-size: 13px; font-weight: 650; cursor: pointer;
+  font-size: 13px; font-weight: 650; cursor: pointer; white-space: nowrap;
   box-shadow: 0 4px 16px rgba(124,92,255,0.35); transition: var(--t);
 }
 .btn-cta:hover { filter: brightness(1.08); transform: translateY(-1px); }
@@ -249,7 +259,7 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
   display: flex; align-items: center; justify-content: center; gap: 6px;
   height: 38px; padding: 0 12px; border-radius: var(--radius);
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-  font-size: 12px; font-weight: 560; cursor: pointer; transition: var(--t);
+  font-size: 12px; font-weight: 560; cursor: pointer; white-space: nowrap; transition: var(--t);
 }
 .btn-sec:hover { background: var(--surface-hover); }
 .btn-stop:hover { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
@@ -745,6 +755,51 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
   padding: 10px 11px; white-space: pre-wrap;
 }
 .session-viewer.hidden { display: none; }
+.session-viewer .sv-summary { display: block; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+.sv-tools { display: flex; gap: 6px; }
+.sv-tools button {
+  -webkit-app-region: no-drag; flex: 1; height: 30px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); font-size: 11.5px; font-family: inherit; cursor: pointer; transition: var(--t);
+}
+.sv-tools button:hover { background: var(--surface-hover); }
+.sv-tools.hidden { display: none; }
+
+/* ── End-of-session report (transcript + summary, both copyable) ── */
+.btn-end:hover { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.end-card { max-width: 420px; max-height: 88%; overflow: hidden; }
+.end-head { display: flex; align-items: center; justify-content: space-between; }
+.end-meta { font-size: 11px; color: var(--text-muted); margin-top: -6px; }
+.end-tabs { display: flex; gap: 6px; }
+.end-tab {
+  -webkit-app-region: no-drag; flex: 1; height: 30px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-muted); font-size: 12px; font-weight: 600; font-family: inherit;
+  cursor: pointer; transition: var(--t);
+}
+.end-tab:hover { background: var(--surface-2); color: var(--text); }
+.end-tab.active { background: var(--surface-2); color: var(--text); border-color: rgba(124,92,255,0.45); }
+.end-body {
+  flex: 1; min-height: 140px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 11px; font-size: 12px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+}
+.end-body.is-transcript { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.55; }
+.end-body .eb-h {
+  display: block; margin: 12px 0 3px; font-size: 10.5px; letter-spacing: 0.08em;
+  font-weight: 700; color: var(--accent-2);
+}
+.end-body .eb-h:first-child { margin-top: 0; }
+.end-body .eb-b { display: block; padding-left: 11px; text-indent: -8px; margin: 2px 0; }
+.end-body .eb-p { display: block; margin: 0 0 5px; }
+.end-body .eb-wait { color: var(--text-muted); }
+.end-body .eb-err { color: var(--danger); }
+.end-actions { display: flex; gap: 7px; }
+.end-actions .btn-cta { height: 34px; font-size: 12.5px; flex: 1; }
+.end-actions .btn-sec { height: 34px; font-size: 11.5px; flex-shrink: 0; }
+.end-actions .btn-sec.hidden { display: none; }
+.end-hint { font-size: 10.5px; color: var(--text-muted); text-align: center; }
 .session-viewer .sv-q { color: #7cc4ff; font-weight: 650; }
 .session-viewer .sv-a { color: #cbbcff; }
 

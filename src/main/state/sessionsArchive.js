@@ -23,7 +23,7 @@ function deriveName({ docFileName, modeContext, modeLabel }) {
   return [subject, modeLabel, date].filter(Boolean).join(' — ');
 }
 
-async function archiveSession({ transcript, answers, modeId, modeLabel, modeContext, docFileName }) {
+async function archiveSession({ transcript, answers, modeId, modeLabel, modeContext, docFileName, summary }) {
   if ((!transcript || transcript.length === 0) && (!answers || answers.length === 0)) {
     return null; // nothing worth saving
   }
@@ -35,6 +35,9 @@ async function archiveSession({ transcript, answers, modeId, modeLabel, modeCont
     savedAt: Date.now(),
     modeId,
     modeContext: modeContext || null,
+    // Present when the user ended the session properly (which generates it);
+    // null for a session that was simply superseded by starting a new one.
+    summary: summary || null,
     transcript: transcript || [],
     answers: answers || [],
   };
@@ -49,7 +52,10 @@ async function listSessions() {
     for (const f of files.filter((x) => x.endsWith('.json'))) {
       try {
         const raw = JSON.parse(await fs.promises.readFile(path.join(SESSIONS_DIR, f), 'utf-8'));
-        sessions.push({ id: raw.id, name: raw.name, savedAt: raw.savedAt, lines: (raw.transcript || []).length });
+        sessions.push({
+          id: raw.id, name: raw.name, savedAt: raw.savedAt,
+          lines: (raw.transcript || []).length, hasSummary: Boolean(raw.summary),
+        });
       } catch (_) { /* skip corrupt file */ }
     }
     return sessions.sort((a, b) => b.savedAt - a.savedAt);

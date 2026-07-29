@@ -1,6 +1,10 @@
 const promptBuilder = require('../promptBuilder');
 
-async function chatCompletion(messages, { apiKey, model }) {
+// BYOK path: a spoken answer fits in 200 tokens, but an end-of-session summary
+// is a multi-section document and would be cut off mid-heading at that budget.
+const TASK_TOKENS = { summary: 1100, notes: 700 };
+
+async function chatCompletion(messages, { apiKey, model, task }) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -10,7 +14,7 @@ async function chatCompletion(messages, { apiKey, model }) {
     body: JSON.stringify({
       model,
       messages,
-      max_tokens: 200,
+      max_tokens: TASK_TOKENS[task] || 200,
       temperature: 0.3,
     }),
   });

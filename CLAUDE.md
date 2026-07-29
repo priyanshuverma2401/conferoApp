@@ -128,6 +128,34 @@ to set (all `sync:false`): `STRIPE_SECRET_KEY`,`STRIPE_PRICE_ID`,`STRIPE_WEBHOOK
 `SMTP_*` (for real OTP/reset emails), optional `GOOGLE_CLIENT_ID/SECRET`. Docs in
 DISTRIBUTION.md. NOT yet committed to git.
 
+**End session → transcript + summary (copyable):** an "End session" button in the
+action bar (shown whenever the session has content; label shortens to "End" while
+live) stops capture and opens a report modal with two tabs — **Summary** and
+**Transcript** — plus Copy summary / Copy transcript / Copy both. Main-process
+`session:end` IPC (`src/main/state/sessionReport.js`) builds the transcript locally
+(elapsed `[mm:ss]` stamps, mode-aware speaker labels: interview→Interviewer/You,
+tutoring→Student/Tutor, else Them/You) and generates the summary via
+`buildSessionSummaryPrompt` — a fixed OVERVIEW / KEY POINTS / <mode-specific> /
+ACTION ITEMS skeleton, where the third section varies by mode (interview→QUESTIONS
+& HOW THEY WERE ANSWERED, dsa→PROBLEMS & APPROACHES, professional→DECISIONS…).
+Long meetings map-reduce: >11k chars chunks into per-part notes (`task:'notes'`)
+then one merge pass. Ending also ARCHIVES immediately (summary included in the
+record; `appState.archivedAt` stops the next Start from double-saving, and is
+cleared when new speech arrives), so a session survives closing the app. Past
+sessions show the summary + their own Copy summary/transcript buttons.
+**Backend change this needs:** `/api/suggest` now takes a `task` name selecting a
+server-side generation profile in `server/src/ai/chat.js` (`TASK_PROFILES`, via
+AsyncLocalStorage) — the live-answer defaults (300 tokens, 8s, spoken-answer
+cleaners) truncated the summary after its first heading AND `stripRepetition`
+flattened every newline into one paragraph. `summary` = 1100 tokens / 30s /
+cleaners skipped. **Render must be redeployed** or summaries come back flattened.
+Verified via CDP end-to-end against a local backend (4/4 sections, 13 bullets,
+copy buttons, no duplicate archive on retry, error state + Retry) and by a direct
+A/B on `/api/suggest`: task=summary → 18 newlines, 4/4 sections; no task → 0
+newlines. Action bar re-laid-out (`flex-wrap` + `nowrap` labels +
+`min-width:max-content` on `.active-actions`) — with six controls in DSA mode the
+CTA label used to wrap and Stop overlapped End.
+
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
    append in `getSystemPrompt`, add a small settings field targeting the active mode.

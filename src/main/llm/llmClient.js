@@ -34,8 +34,10 @@ function createLlmClient(config) {
 
   return {
     getSuggestion: (args) => provider.getSuggestion(args, providerConfig),
-    getCompletion: ({ systemPrompt, userPrompt }) =>
-      provider.chatCompletion(toMessages(systemPrompt, userPrompt), providerConfig),
+    // `task` names a backend generation profile — omit it for anything
+    // conversation-shaped; the end-of-session summary needs a longer one.
+    getCompletion: ({ systemPrompt, userPrompt, task }) =>
+      provider.chatCompletion(toMessages(systemPrompt, userPrompt), { ...providerConfig, task }),
     // Like getCompletion but returns { text, provider, detail } so callers can
     // show which model answered. `forcedProvider` (from the in-app model picker)
     // asks the backend to use that model first. Falls back gracefully for

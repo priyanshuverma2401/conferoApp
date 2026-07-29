@@ -80,7 +80,7 @@ router.post('/transcribe', requireAuth, upload.single('file'), async (req, res) 
 // Suggest: the desktop app sends the system+user messages; we forward to Groq
 // chat with the server-held key and return the assistant text.
 router.post('/suggest', requireAuth, express.json({ limit: '256kb' }), async (req, res) => {
-  const { messages, provider, prefer, mode } = req.body || {};
+  const { messages, provider, prefer, mode, task } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required.' });
   }
@@ -100,7 +100,9 @@ router.post('/suggest', requireAuth, express.json({ limit: '256kb' }), async (re
     // unless the app's model picker forces one (strict) or the active mode
     // prefers one (soft, front of the chain with fallback). Returns
     // { text, provider, detail } so the app can show which model answered.
-    const result = await chat(messages, { forceProvider: provider, preferProvider: prefer });
+    // `task` picks a server-side generation profile (e.g. the longer budget an
+    // end-of-session summary needs) — a name, never raw token counts.
+    const result = await chat(messages, { forceProvider: provider, preferProvider: prefer, task });
     res.json(result);
   } catch (err) {
     // Include the attempt trace so the app's QA log records what was tried.

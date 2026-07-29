@@ -15,6 +15,7 @@ const helpNowBtn = document.getElementById('helpNowBtn');
 const recapBtn = document.getElementById('recapBtn');
 const stopBtn = document.getElementById('stopBtn');
 const clearBtn = document.getElementById('clearBtn');
+const endBtn = document.getElementById('endBtn');
 const closeBtn = document.getElementById('closeBtn');
 const errorBanner = document.getElementById('error-banner');
 const modeChip = document.getElementById('modeChip');
@@ -67,6 +68,9 @@ const consentExit = document.getElementById('consentExit');
 const sessionsModal = document.getElementById('sessionsModal');
 const sessionsList = document.getElementById('sessionsList');
 const sessionViewer = document.getElementById('sessionViewer');
+const sessionTools = document.getElementById('sessionTools');
+const svCopySummary = document.getElementById('svCopySummary');
+const svCopyTranscript = document.getElementById('svCopyTranscript');
 const sessionsBack = document.getElementById('sessionsBack');
 const sessionsClose = document.getElementById('sessionsClose');
 const upsellModal = document.getElementById('upsellModal');
@@ -116,6 +120,10 @@ function hasSessionContent() {
 function updateClearVisibility() {
   const has = hasSessionContent();
   clearBtn.style.display = has ? '' : 'none';
+  // "End session" is only meaningful once something has been said. While live the
+  // action bar is crowded, so it shortens to "End".
+  endBtn.style.display = has ? '' : 'none';
+  endBtn.querySelector('span').textContent = isCapturing ? 'End' : 'End session';
   // Zen idle: no content and not live → hide the empty furniture entirely.
   appEl.classList.toggle('zen', !has && !isCapturing);
 }
@@ -713,13 +721,14 @@ function fmtDate(ts) {
 async function openSessions() {
   sessionViewer.classList.add('hidden');
   sessionsBack.classList.add('hidden');
+  sessionTools.classList.add('hidden');
   sessionsList.style.display = '';
   const sessions = await window.stealthAPI.listSessions();
   sessionsList.innerHTML = sessions.length
     ? sessions.map((s) => `
         <button class="session-item" data-id="${s.id}">
           <span class="si-name">${escapeHtml(s.name)}</span>
-          <span class="si-meta">${fmtDate(s.savedAt)} · ${s.lines} lines</span>
+          <span class="si-meta">${fmtDate(s.savedAt)} · ${s.lines} lines${s.hasSummary ? ' · summary' : ''}</span>
         </button>`).join('')
     : '<div class="sessions-empty">No saved sessions yet — finish one and start another, and it lands here automatically.</div>';
   sessionsList.querySelectorAll('.session-item').forEach((el) => {
@@ -727,10 +736,33 @@ async function openSessions() {
   });
   sessionsModal.classList.remove('hidden');
 }
+// Plain-text transcript of a SAVED session, for the clipboard. Elapsed stamps,
+// same shape as the live end-of-session report.
+function plainTranscript(session) {
+  const lines = session.transcript || [];
+  if (!lines.length) return '';
+  const t0 = lines[0].timestamp;
+  const stamp = (ms) => {
+    const total = Math.max(0, Math.round(ms / 1000));
+    const pad = (n) => String(n).padStart(2, '0');
+    const h = Math.floor(total / 3600);
+    const body = `${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+    return h ? `${h}:${body}` : body;
+  };
+  const head = `${session.name}\n${fmtDate(session.savedAt)} · ${lines.length} lines\n${'─'.repeat(48)}`;
+  const body = lines
+    .map((t) => `[${stamp(t.timestamp - t0)}] ${t.source === 'system' ? 'Them' : 'You'}: ${t.text.trim()}`)
+    .join('\n');
+  return `${head}\n${body}\n`;
+}
+
+let viewedSession = null;
 async function viewSession(id) {
   const s = await window.stealthAPI.getSession(id);
   if (!s) return;
+  viewedSession = s;
   const parts = [];
+  if (s.summary) parts.push(`<span class="sv-summary">${summaryHtml(s.summary)}</span>`);
   for (const t of s.transcript || []) {
     parts.push(`<div>[${t.source === 'system' ? 'Them' : 'You'}] ${escapeHtml(t.text)}</div>`);
   }
@@ -743,12 +775,23 @@ async function viewSession(id) {
   sessionsList.style.display = 'none';
   sessionViewer.classList.remove('hidden');
   sessionsBack.classList.remove('hidden');
+  sessionTools.classList.remove('hidden');
+  svCopySummary.disabled = !s.summary;
+  svCopySummary.title = s.summary ? 'Copy this session\'s summary' : 'This session was saved without a summary';
 }
+sessionTools.addEventListener('click', (e) => e.stopPropagation());
+svCopySummary.addEventListener('click', () => {
+  if (viewedSession && viewedSession.summary) copyWithFeedback(viewedSession.summary, svCopySummary);
+});
+svCopyTranscript.addEventListener('click', () => {
+  if (viewedSession) copyWithFeedback(plainTranscript(viewedSession), svCopyTranscript);
+});
 historyBtn.addEventListener('click', openSessions);
 sessionsClose.addEventListener('click', () => sessionsModal.classList.add('hidden'));
 sessionsBack.addEventListener('click', () => {
   sessionViewer.classList.add('hidden');
   sessionsBack.classList.add('hidden');
+  sessionTools.classList.add('hidden');
   sessionsList.style.display = '';
 });
 
@@ -926,6 +969,166 @@ if (SHOW_MODEL_BADGE) {
 }
 
 updateClearVisibility();
+
+// ── End of session: transcript + summary, both copyable ──
+// The closing act: stop listening, then hand the user the two artifacts a call
+// leaves behind — the full transcript, and a summary of what happened. The
+// transcript comes back instantly (assembled in main); the summary is an LLM
+// pass, so the modal opens immediately and fills in when it lands.
+const endModal = document.getElementById('endModal');
+const endMeta = document.getElementById('endMeta');
+const endBody = document.getElementById('endBody');
+const endCopy = document.getElementById('endCopy');
+const endCopyBoth = document.getElementById('endCopyBoth');
+const endRetry = document.getElementById('endRetry');
+const endClose = document.getElementById('endClose');
+const endHint = document.getElementById('endHint');
+
+let endReport = null;      // { transcript, summary, stats, ... }
+let endTab = 'summary';
+let endBusy = false;
+
+// Copy with in-place confirmation — a toast would be one more thing to read
+// mid-flow, and the button is where the user is already looking.
+function copyWithFeedback(text, btn, done = 'Copied ✓') {
+  if (!text) return;
+  const label = btn.querySelector('span') || btn;
+  const original = label.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    label.textContent = done;
+    setTimeout(() => { label.textContent = original; }, 1500);
+  }).catch(() => showError("Couldn't copy to clipboard."));
+}
+
+// The summary comes back as plain text with ALL-CAPS section headings and "-"
+// bullets (see buildSessionSummaryPrompt) — render that shape, and degrade to
+// plain paragraphs if a model ignores the format.
+// Every line becomes a BLOCK, and the pieces are joined with nothing: the pane
+// is white-space:pre-wrap for the transcript, so joining with "\n" here would
+// add a blank line on top of each block and double-space the whole summary.
+function summaryHtml(text) {
+  return text
+    .split(/\r?\n/)
+    .map((raw) => {
+      const line = raw.trim();
+      if (!line) return '';
+      if (/^[A-Z][A-Z0-9 &/'’,.\-]{2,}$/.test(line) && !/[.!?]$/.test(line)) {
+        return `<span class="eb-h">${escapeHtml(line)}</span>`;
+      }
+      if (/^[-•*]\s+/.test(line)) {
+        return `<span class="eb-b">• ${escapeHtml(line.replace(/^[-•*]\s+/, ''))}</span>`;
+      }
+      return `<span class="eb-p">${escapeHtml(line)}</span>`;
+    })
+    .filter(Boolean)
+    .join('');
+}
+
+function endBothText() {
+  if (!endReport) return '';
+  return [endReport.summary, endReport.transcript].filter(Boolean).join('\n\n');
+}
+
+function renderEndBody() {
+  endBody.classList.toggle('is-transcript', endTab === 'transcript');
+  document.querySelectorAll('.end-tab').forEach((t) => {
+    t.classList.toggle('active', t.getAttribute('data-tab') === endTab);
+  });
+  const copyLabel = endCopy.querySelector('span');
+  copyLabel.textContent = endTab === 'transcript' ? 'Copy transcript' : 'Copy summary';
+
+  if (!endReport) {
+    endBody.innerHTML = '<span class="eb-wait">Wrapping up the session…</span>';
+    endCopy.disabled = true;
+    endCopyBoth.disabled = true;
+    return;
+  }
+  if (endReport.empty) {
+    endBody.innerHTML = '<span class="eb-wait">Nothing was captured in this session — there\'s no transcript to summarize yet.</span>';
+    endCopy.disabled = true;
+    endCopyBoth.disabled = true;
+    return;
+  }
+  if (endTab === 'transcript') {
+    endBody.textContent = endReport.transcript;
+    endCopy.disabled = false;
+  } else if (endReport.summary) {
+    endBody.innerHTML = summaryHtml(endReport.summary);
+    endCopy.disabled = false;
+  } else if (endReport.error) {
+    endBody.innerHTML = `<span class="eb-err">Couldn't generate the summary: ${escapeHtml(endReport.error)}</span>\n<span class="eb-wait">The transcript is still here — switch tabs to copy it.</span>`;
+    endCopy.disabled = true;
+  } else {
+    endBody.innerHTML = '<span class="eb-wait">Reading back the session and writing the summary…</span>';
+    endCopy.disabled = true;
+  }
+  endCopyBoth.disabled = !endReport.summary;
+  endRetry.classList.toggle('hidden', !endReport.error);
+}
+
+function openEndModal() {
+  endModal.classList.remove('hidden');
+  renderEndBody();
+}
+
+async function runEndSession() {
+  if (endBusy) return;
+  endBusy = true;
+  endReport = null;
+  endTab = 'summary';
+  endMeta.textContent = 'Ending session…';
+  endHint.textContent = '';
+  endRetry.classList.add('hidden');
+  openEndModal();
+  try {
+    const res = await window.stealthAPI.endSession();
+    endReport = res;
+    const s = res.stats || {};
+    endMeta.textContent = res.empty
+      ? 'No conversation captured'
+      : [res.modeLabel, s.duration, `${s.lines} lines`, res.answered ? `${res.answered} answered` : null]
+        .filter(Boolean).join(' · ');
+    endHint.textContent = res.saved
+      ? `Saved to Past sessions as "${res.saved.name}".`
+      : res.empty ? '' : 'Already saved to Past sessions.';
+  } catch (err) {
+    endReport = { transcript: '', summary: '', error: err.message };
+    endMeta.textContent = '';
+  } finally {
+    endBusy = false;
+    renderEndBody();
+  }
+}
+
+// End = stop listening, then report. Stopping first means the summary covers the
+// whole call and no late transcript chunk lands after it was written.
+endBtn.addEventListener('click', async () => {
+  if (endBusy) return;
+  if (isCapturing) {
+    window.audioCapture.stopAudioCapture();
+    await window.stealthAPI.stopCapture();
+    setCapturingUi(false);
+  }
+  runEndSession();
+});
+
+document.querySelectorAll('.end-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    endTab = tab.getAttribute('data-tab');
+    renderEndBody();
+    endBody.scrollTop = 0;
+  });
+});
+endCopy.addEventListener('click', () => {
+  if (!endReport) return;
+  copyWithFeedback(endTab === 'transcript' ? endReport.transcript : endReport.summary, endCopy);
+});
+endCopyBoth.addEventListener('click', () => copyWithFeedback(endBothText(), endCopyBoth));
+endRetry.addEventListener('click', runEndSession);
+endClose.addEventListener('click', () => endModal.classList.add('hidden'));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !endModal.classList.contains('hidden')) endModal.classList.add('hidden');
+});
 
 // ── Code Assist workspace (DSA / LLD) ──
 // A paste-driven coding surface layered over the app. The audio pipeline keeps
