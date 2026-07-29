@@ -156,6 +156,65 @@ newlines. Action bar re-laid-out (`flex-wrap` + `nowrap` labels +
 `min-width:max-content` on `.active-actions`) — with six controls in DSA mode the
 CTA label used to wrap and Stop overlapped End.
 
+**Summary formatting (bullets, not a paragraph):** the reported bug was the
+closing summary reading as one prose blob. Root cause is model variance, not the
+backend: every summary on Render is being answered by `groqChatModel` =
+**`llama-3.1-8b-instant`** (config.js default; Gemini/Cerebras sit ahead of it in
+`QUALITY_ORDER` but evidently have no key there), and an 8B model drops the
+output format under load — reproduced a real response that came back with the
+whole summary on ONE physical line, headings and "- " bullets inline. (The old
+"Render must be redeployed or summaries come back flattened" note above is stale:
+A/B'd `/api/suggest` against Render — both task=summary and no-task return 14-15
+newlines, so the profile is live.) Fixed on both ends:
+1. Prompt (`buildSessionSummaryPrompt`) now gives a literal template plus hard
+   formatting rules — every line under a bullet heading MUST start with "- ",
+   one idea per bullet, 8-20 words, 3-6 per section, "- None stated." for an
+   empty one, OVERVIEW the only prose section and under three sentences. The
+   note-taker system prompt in `sessionReport.js` repeats "never answer in prose
+   paragraphs" (weak models drop the format before they drop the content).
+2. Renderer REPAIRS whatever arrives, rather than trusting it —
+   `normalizeSummary()` (idempotent) puts line breaks back before a CAPS heading
+   and before inline bullets, then `summaryHtml()` sections it: strips markdown
+   (`##`, `**bold**`, `*`/`1.` bullets), accepts Title-Case headings, and splits
+   prose that landed in a bullet section into one bullet per sentence. A summary
+   with no structure at all is bulleted by sentence. Normalization is applied to
+   `endReport.summary` and saved sessions too, so the COPIED text is formatted,
+   not just the on-screen one.
+   Two traps worth remembering, both hit during this work: the heading
+   alternation backtracks and cuts "ACTION ITEMS & NEXT STEPS" in half at its own
+   "&" (hence the `(?![&+])` guards), and splitting on a bare " - " destroys
+   prose like "the client - who joined late - agreed" (hence requiring sentence
+   punctuation before an inline bullet: `(?<=[.;:!?])\s+[-•]\s+`).
+Verified via CDP over 6 shapes (well-formed / collapsed-one-line / markdown /
+prose-under-heading / one-paragraph / dash-in-prose): all render as headings +
+bullets, all idempotent, dash-in-prose untouched; plus 3 live backend runs
+(4 headings, 11-13 bullets each) and a visual check of the report modal.
+**Quality lever not taken:** setting `GROQ_CHAT_MODEL=llama-3.3-70b-versatile`
+(or adding a Gemini/Cerebras key) on Render would fix the cause rather than the
+symptom — left alone because it also affects latency-sensitive live answers.
+
+**Report modal copy → corner icon (+ a clipboard bug this exposed):** the footer
+row ("Copy summary" CTA + "Copy both") is gone; copy is now a single `.btn-icon
+.icon-copy` in the `.end-head` beside the ✕. It acts on whichever tab is open
+(title tracks it: "Copy summary"/"Copy transcript"), confirms by swapping its SVG
+to a green tick via a `.copied` class for 1.5s (an icon has no label to
+overwrite, so `copyWithFeedback` branches on `.icon-copy`), clears the tick on
+tab switch, and dims at `opacity:.3` while disabled. `#endActions` now holds only
+Retry and the ROW itself is hidden unless `endReport.error` — an empty flex box
+still costs a `.gate-card` gap. "Copy both" and `endBothText()` deleted.
+**The bug this surfaced:** `setPermissionRequestHandler` only allowed
+`['media','display-capture']`, so `navigator.clipboard.writeText` rejected with
+NotAllowedError and EVERY copy button in the app silently did nothing — the
+report modal, past-session copies, and Code Assist's code Copy (which swallowed
+the rejection in a bare `.catch(() => {})`, so it never even said "Copied").
+Fixed in main.js: `ALLOWED_PERMISSIONS` adds `clipboard-write` +
+`clipboard-sanitized-write`, and a `setPermissionCheckHandler` was added — the
+clipboard path asks the CHECK handler, not the request handler, so allowing it in
+only one of the two is not enough. Verified with REAL trusted clicks via
+`Input.dispatchMouseEvent` (a synthetic `el.click()` is not a fair test here) and
+by reading the OS clipboard back with `Get-Clipboard`: summary tab → formatted
+summary, transcript tab → transcript, Code Assist → the code block.
+
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
    append in `getSystemPrompt`, add a small settings field targeting the active mode.

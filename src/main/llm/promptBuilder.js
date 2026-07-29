@@ -270,23 +270,34 @@ ${shape.focus}
 
 Ground every line in the material above. The transcript is machine-generated, so treat a
 garbled word as the closest real term from the context — but never invent a fact, a name,
-a number, or a commitment that isn't there. If a section has nothing real to put in it,
-write "None stated." under it rather than padding.
+a number, or a commitment that isn't there.
 
-Output PLAIN TEXT in exactly this shape — these four headings, in this order, in capitals
-on their own line. No markdown, no asterisks, no preamble, no sign-off:
+This summary is READ, not spoken — it has to scan in a few seconds, like a good set of
+meeting minutes. Reproduce the template below EXACTLY: the four headings in CAPITALS,
+each alone on its own line, in this order. Plain text only — no markdown, no asterisks,
+no "#", no numbered lists, no preamble, no sign-off.
 
 OVERVIEW
-Two or three sentences on what this session was and how it went.
+One or two sentences on what this session was and how it went.
 
 KEY POINTS
-- short bullets, the substance of what was discussed
+- the substance of what was discussed, one point per line
+- another point
 
 ${shape.heading}
-- short bullets
+- one per line
 
 ACTION ITEMS & NEXT STEPS
-- short bullets, each starting with a verb`;
+- verb first, naming the owner and the date whenever one was actually stated
+
+Formatting rules — these matter as much as the content:
+- Every single line under a bullet heading MUST begin with "- ". Never write a paragraph
+  under a bullet heading, and never run several points together into one long bullet.
+- One idea per bullet, one line each, roughly 8 to 20 words. Trim filler; keep the number,
+  the name, and the date.
+- Aim for 3 to 6 bullets per section where the material supports it. If a section has
+  nothing real in it, write exactly one bullet: "- None stated."
+- OVERVIEW is the only section written as sentences, and it stays under three.`;
 }
 
 module.exports = {

@@ -96,7 +96,14 @@ async function summarize({ llmClient, promptBuilder, lines, modeId, modeLabel, m
   if (!lines.length) return '';
   const rendered = renderLines(lines, modeId);
   const parts = chunk(rendered, CHUNK_CHARS);
-  const system = 'You are a precise meeting and interview note-taker. You summarize only what is in the transcript.';
+  // "reproduce the format exactly" is in the system prompt as well as the user
+  // prompt because the weaker models we fall back to on the free tiers drop the
+  // section/bullet shape first and answer in prose, which is unreadable at a
+  // glance — the whole point of a closing summary.
+  const system =
+    'You are a precise meeting and interview note-taker. You summarize only what is in the transcript. '
+    + 'You write scannable minutes: CAPITALISED section headings on their own line and "- " bullets, '
+    + 'one idea per bullet. You reproduce the requested output format exactly and never answer in prose paragraphs.';
 
   let notes = null;
   if (parts.length > 1) {
