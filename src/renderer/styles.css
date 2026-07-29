@@ -203,10 +203,14 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 .pane-empty { font-size: 12px; color: var(--text-muted); padding: 8px 2px; line-height: 1.5; }
 .pane-empty b { color: rgba(244,242,251,0.75); font-weight: 620; }
 
-.line { margin-bottom: 5px; animation: fade var(--t); }
-.line .tag { font-size: 9.5px; font-weight: 640; opacity: 0.75; margin-right: 6px; padding: 1px 5px; border-radius: 4px; }
-.line.system .tag { color: #7cc4ff; background: rgba(124,196,255,0.12); }
-.line.mic .tag { color: #ffb37c; background: rgba(255,179,124,0.12); }
+/* Speaker is carried by the left rail, not a "[Them]"/"[You]" label — the
+   transcript should read as speech, not as a log. */
+.line {
+  margin-bottom: 5px; padding-left: 9px;
+  border-left: 2px solid transparent; animation: fade var(--t);
+}
+.line.system { border-left-color: rgba(124,196,255,0.5); }
+.line.mic { border-left-color: rgba(255,179,124,0.45); color: var(--text-muted); }
 @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
 .suggestion {
@@ -506,14 +510,40 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 .pane-divider:hover, .pane-divider.dragging { background: rgba(124,92,255,0.35); }
 
 /* Transcript extras: question highlight + read-back dimming */
-.line.q { background: rgba(124,196,255,0.07); border-left: 2px solid #7cc4ff; padding: 3px 7px; border-radius: var(--radius-sm); }
-.q-chip {
-  display: inline-block; font-size: 9px; font-weight: 800; color: #0d0b14;
-  background: #7cc4ff; border-radius: 4px; padding: 0.5px 5px; margin-right: 6px;
-  letter-spacing: 0.03em;
-}
+.line.q { background: rgba(124,196,255,0.07); border-left-color: #7cc4ff; padding: 3px 7px 3px 9px; border-radius: var(--radius-sm); }
 .line.readback { opacity: 0.38; }
 .line.readback .rb-note { font-size: 9.5px; color: var(--text-muted); margin-left: 6px; font-style: italic; }
+
+/* ── Q→A cards: the surface the candidate actually reads mid-call ──
+   Bold question, answer straight under it, no timestamps or speaker chips. The
+   newest card is scrolled to the top of the pane (see appendAtTop) so the
+   current question is always the first thing on screen; the spacer below gives
+   it the room to get there. */
+.feed-spacer { flex: 0 0 auto; }
+.qa-card {
+  padding: 2px 0 13px; margin-bottom: 13px;
+  border-bottom: 1px solid var(--border); animation: fade var(--t);
+}
+.qa-card:last-of-type { border-bottom: none; }
+.qa-q {
+  font-size: calc(var(--answer-size, 15px) - 0.5px); font-weight: 760;
+  line-height: 1.4; color: var(--text); margin-bottom: 9px;
+}
+.qa-note { font-size: 10.5px; color: var(--text-muted); margin: -4px 0 8px; }
+.qa-card .ans-list { display: flex; flex-direction: column; gap: 9px; }
+.qa-card .ans-block .ab-say { font-size: var(--answer-size, 15px); font-weight: var(--answer-weight, 680); }
+.qa-foot { display: flex; align-items: center; gap: 9px; margin-top: 9px; min-height: 14px; }
+.qa-foot:empty { display: none; }
+.qa-meta { margin-left: auto; font-size: 9.5px; color: var(--text-muted); opacity: 0.65; }
+.qa-upsell { font-size: 10.5px; color: var(--amber); cursor: pointer; }
+.qa-card .card-diff {
+  -webkit-app-region: no-drag;
+  background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+  font-size: 10.5px; font-weight: 600; padding: 3px 9px; border-radius: 20px; cursor: pointer; transition: var(--t);
+}
+.qa-card .card-diff:hover { color: var(--text); background: var(--surface-2); }
+.qa-card .take2 { margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--border); }
+.qa-card .take2 .t2-tag { font-size: 9px; font-weight: 750; letter-spacing: 0.06em; color: #cbbcff; text-transform: uppercase; display: block; margin-bottom: 2px; }
 
 /* Feed answer cards (free tier + history) */
 .suggestion .beats { margin-top: 4px; display: flex; flex-direction: column; gap: 4px; }
@@ -568,6 +598,23 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
   resize: vertical; transition: var(--t);
 }
 .gate-card textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,0.15); }
+/* Launch step 1 — purpose picker. Required, so it's the whole card: no ✕, no
+   skip, just the choices. */
+.purpose-list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; }
+.purpose-card {
+  -webkit-app-region: no-drag;
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 11px; color: var(--text); cursor: pointer; transition: var(--t);
+}
+.purpose-card:hover { background: var(--surface-2); border-color: rgba(124,92,255,0.45); transform: translateY(-1px); }
+.purpose-card .pc-emoji { font-size: 17px; line-height: 1.15; }
+.purpose-card .pc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.purpose-card .pc-label { font-size: 12.5px; font-weight: 660; }
+.purpose-card .pc-blurb { font-size: 10.5px; color: var(--text-muted); line-height: 1.35; }
+.purpose-card.locked .pc-emoji { opacity: 0.6; }
+.purpose-card.locked .pc-label { color: var(--text-muted); }
+
 .gate-vocab-label { font-size: 10.5px; color: var(--text-muted); line-height: 1.4; }
 .gate-vocab-label span { opacity: 0.7; }
 .gate-card input.gate-vocab {

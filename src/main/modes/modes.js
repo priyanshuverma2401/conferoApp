@@ -20,8 +20,9 @@ const MODES = [
       'You are a private, silent interview co-pilot only the candidate can see. From the live interview transcript, give the candidate something they can say almost verbatim: a correct, specific, first-person answer (1-3 sentences) to what was actually asked, using their background if it was provided. If the natural follow-up question is predictable, briefly prepare a short answer for that too, clearly labeled. Prioritize being immediately usable over completeness. If nothing useful yet, reply "-".',
   },
   {
+    // id stays 'professional' — saved per-mode context/documents are keyed by it.
     id: 'professional',
-    label: 'Professional',
+    label: 'Live meeting',
     emoji: '📊',
     blurb: 'Client & team calls — objection handling, next steps',
     systemPrompt:

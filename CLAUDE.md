@@ -52,7 +52,7 @@ all `electron` processes before relaunching with the debug port.
   themes (`data-theme` on <html>: default + matrix), code-answer rendering.
 
 ## Modes
-tutoring · interview (mock) · professional · **dsa** (DSA & System Design — code
+tutoring · interview (mock) · professional (labelled "Live meeting") · **dsa** (DSA & System Design — code
 output, Qwen3-Coder preferred) · general.
 
 ## Current status (update this as you go)
@@ -127,6 +127,29 @@ checks (file backend) + live HTTP (signup/otp/402-gate/503-checkout) + CDP UI
 to set (all `sync:false`): `STRIPE_SECRET_KEY`,`STRIPE_PRICE_ID`,`STRIPE_WEBHOOK_SECRET`,
 `SMTP_*` (for real OTP/reset emails), optional `GOOGLE_CLIENT_ID/SECRET`. Docs in
 DISTRIBUTION.md. NOT yet committed to git.
+
+**Reading surface + launch flow (renderer):** answers used to append to the
+bottom of `#suggestions-pane`, so the newest question was off-screen — the
+candidate had to scroll DOWN mid-interview. `appendAtTop()` now pulls the
+just-added card to the TOP of the pane (trailing `.feed-spacer` gives the last
+card the room to get there); previous Q→A pairs sit above, one scroll up.
+Card markup replaced: `.qa-card` = bold question (`.qa-q`) → answer → thin foot
+(rephrase button + muted model/latency). Dropped the `Q ·`/timestamp chips and
+the `"quotes"` around SAY lines. Transcript dropped the `[Them]`/`[You]` labels
+for a coloured left rail (blue=interviewer, amber+muted=you); the ticker no
+longer prefixes a tag. `professional` mode RELABELLED **"Live meeting"** (id
+unchanged — saved modeContext/documentContext are keyed by it) in BOTH
+`server/src/modes.js` and the local fallback; installed/packaged apps read the
+Render backend, so that label needs a **server redeploy** to reach users.
+Launch flow: new `#purposeGate` (step 1, MANDATORY — no ✕, no skip, premium
+cards locked→upgrade) shown every launch after the ethics agreement, then the
+existing `#sessionGate` (step 2, skippable) for personal context. Wired via
+`startLaunchFlow()` (deferred with `queueMicrotask` — it awaits `modesReady`
+declared later in the file). `onAnswerReady`'s handler extracted to a named
+`renderAnswer()` so the real render path is drivable from CDP. Verified via CDP:
+purpose gate → consent (interview only) → context gate; newest card measured at
+offset 0 with all previous cards fully above the viewport; scrollback intact;
+code answers + Copy buttons fine in the new card.
 
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,

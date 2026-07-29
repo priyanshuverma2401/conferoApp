@@ -69,6 +69,8 @@ const sessionsList = document.getElementById('sessionsList');
 const sessionViewer = document.getElementById('sessionViewer');
 const sessionsBack = document.getElementById('sessionsBack');
 const sessionsClose = document.getElementById('sessionsClose');
+const purposeGate = document.getElementById('purposeGate');
+const purposeList = document.getElementById('purposeList');
 const upsellModal = document.getElementById('upsellModal');
 const upsellMsg = document.getElementById('upsellMsg');
 const upsellClose = document.getElementById('upsellClose');
@@ -105,10 +107,36 @@ function pinnedAppend(pane, el) {
   if (pinned) pane.scrollTop = pane.scrollHeight;
 }
 
+// Newest-question-first reading. Cards are still appended in order, but the one
+// that just landed is pulled to the TOP of the pane, so the question being
+// answered right now is the first thing on screen — no scrolling down mid-
+// interview. Everything older sits above it, one scroll up away.
+// The trailing spacer gives the last card enough room below to actually reach
+// the top of a pane that isn't full yet.
+function paneSpacer(pane) {
+  let sp = pane.querySelector(':scope > .feed-spacer');
+  if (!sp) {
+    sp = document.createElement('div');
+    sp.className = 'feed-spacer';
+  }
+  pane.appendChild(sp); // always the last child
+  return sp;
+}
+function appendAtTop(pane, el) {
+  pane.appendChild(el);
+  // Un-zen first: a hidden pane measures 0 and the scroll below would no-op.
+  updateClearVisibility();
+  const sp = paneSpacer(pane);
+  sp.style.height = '0px';
+  const room = pane.clientHeight - el.offsetHeight - 12;
+  sp.style.height = room > 0 ? `${room}px` : '0px';
+  pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+}
+
 function hasSessionContent() {
   return Boolean(
     transcriptPane.querySelector('.line') ||
-    suggestionsPane.querySelector('.suggestion') ||
+    suggestionsPane.querySelector('.suggestion, .qa-card') ||
     !answerStage.classList.contains('hidden')
   );
 }
@@ -134,29 +162,28 @@ function resetSessionUi() {
 }
 
 // ── Transcript ──
+// No "[Them]"/"[You]" labels — in a live call that's noise. The speaker is
+// carried by the coloured rail on the left instead, so the eye reads words.
 function appendTranscriptLine({ source, text, isQuestion, readBack }) {
   transcriptEmpty.style.display = 'none';
   const div = document.createElement('div');
   div.className = `line ${source}${isQuestion ? ' q' : ''}${readBack ? ' readback' : ''}`;
-  const tag = source === 'system' ? '[Them]' : '[You]';
-  const qChip = isQuestion ? '<span class="q-chip">Q</span>' : '';
   const rbNote = readBack ? '<span class="rb-note">(you, reading)</span>' : '';
-  div.innerHTML = `${qChip}<span class="tag">${tag}</span>${escapeHtml(text)}${rbNote}`;
+  div.innerHTML = `${escapeHtml(text)}${rbNote}`;
   pinnedAppend(transcriptPane, div);
-  tickerText.textContent = `${tag} ${text}`;
+  tickerText.textContent = text;
   updateClearVisibility();
 }
 
 // ── Suggestions feed ──
-function appendSuggestion({ text, timestamp, kind }) {
+function appendSuggestion({ text, kind }) {
   suggestionsEmpty.style.display = 'none';
   const div = document.createElement('div');
   div.className = `suggestion ${kind || ''}`;
-  const time = new Date(timestamp || Date.now()).toLocaleTimeString();
   const label = kind === 'help' ? 'Answer' : kind === 'recap' ? 'Recap' : '';
-  const tag = label ? `<span class="s-tag">${label}</span> · ` : '';
-  div.innerHTML = `<div class="s-time">${tag}${time}</div>${escapeHtml(text)}`;
-  pinnedAppend(suggestionsPane, div);
+  const tag = label ? `<div class="s-time"><span class="s-tag">${label}</span></div>` : '';
+  div.innerHTML = `${tag}${escapeHtml(text)}`;
+  appendAtTop(suggestionsPane, div);
   updateClearVisibility();
   return div;
 }
@@ -198,7 +225,7 @@ function parseBeats(text) {
 // Cluely-style bullets: a short label, then the exact words to speak in bold.
 function ansBlocksHtml(blocks) {
   return blocks
-    .map((b) => `<div class="ans-block"><span class="ab-label">${escapeHtml(b.cue)}</span><span class="ab-say">"${escapeHtml(b.line)}"</span></div>`)
+    .map((b) => `<div class="ans-block"><span class="ab-label">${escapeHtml(b.cue)}</span><span class="ab-say">${escapeHtml(b.line)}</span></div>`)
     .join('');
 }
 function substanceOf(text) {
@@ -338,7 +365,7 @@ window.stealthAPI.onAnswerQuick(({ text }) => {
 // One consistent structured answer (was two racing calls). Parses the optional
 // correction NOTE (shown as a chip, never spoken) + the labeled blocks, and
 // renders them as Cluely-style bullets with the spoken words in bold.
-window.stealthAPI.onAnswerReady(({ question, text, ms, adaptiveUpsell, provider, detail, format }) => {
+function renderAnswer({ question, text, ms, adaptiveUpsell, provider, detail, format }) {
   resetHelpBtn();
   const note = extractNote(text);
   const codeMode = isCodeAnswer(text, format);
@@ -378,26 +405,41 @@ window.stealthAPI.onAnswerReady(({ question, text, ms, adaptiveUpsell, provider,
       attachDiffButton(hist, lastAnswerSubstance);
     }
   } else {
+    // The candidate's reading surface: question in bold, answer straight under
+    // it, nothing else competing for the eye. The card is pulled to the top of
+    // the pane so the CURRENT question is what you see — the previous ones are
+    // above, only if you scroll back for them.
     suggestionsEmpty.style.display = 'none';
     const card = document.createElement('div');
-    card.className = 'suggestion help';
-    const qLine = question ? `<div class="s-time"><span class="s-tag">Q</span> · ${escapeHtml(question)}</div>` : '';
-    const noteLine = note ? `<div class="s-note">🎯 ${escapeHtml(note)}</div>` : '';
-    card.innerHTML = `${qLine}${noteLine}<div class="ans-list">${answerHtml}</div><div class="s-time"><span class="s-ms">${stamp}</span></div>`;
-    pinnedAppend(suggestionsPane, card);
-    currentFeedCard = card;
+    card.className = 'qa-card';
+    const qLine = question ? `<div class="qa-q">${escapeHtml(question)}</div>` : '';
+    const noteLine = note ? `<div class="qa-note">🎯 ${escapeHtml(note)}</div>` : '';
+    card.innerHTML = `${qLine}${noteLine}<div class="ans-list">${answerHtml}</div>`;
+    const foot = document.createElement('div');
+    foot.className = 'qa-foot';
+    card.appendChild(foot);
     if (codeMode) wireCopyButtons(card);
-    else attachDiffButton(card, lastAnswerSubstance);
+    else attachDiffButton(card, lastAnswerSubstance, foot);
     if (adaptiveUpsell) {
-      const hint = document.createElement('div');
-      hint.className = 's-time';
-      hint.innerHTML = '<span class="s-ms" style="color:var(--amber);cursor:pointer;">Follow-up-aware answers are Pro →</span>';
-      hint.addEventListener('click', () => openUpsell('Interviewers never ask just one question. Pro keeps up with every follow-up.'));
-      card.appendChild(hint);
+      const hint = document.createElement('span');
+      hint.className = 'qa-upsell';
+      hint.textContent = 'Follow-up-aware answers are Premium →';
+      hint.addEventListener('click', () => openUpsell('Interviewers never ask just one question. Premium keeps up with every follow-up.'));
+      foot.appendChild(hint);
     }
+    const metaBits = [SHOW_MODEL_BADGE && provider ? [provider, detail].filter(Boolean).join(' · ') : '', stamp].filter(Boolean);
+    if (metaBits.length) {
+      const meta = document.createElement('span');
+      meta.className = 'qa-meta';
+      meta.textContent = metaBits.join(' · ');
+      foot.appendChild(meta);
+    }
+    appendAtTop(suggestionsPane, card);
+    currentFeedCard = card;
   }
   updateClearVisibility();
-});
+}
+window.stealthAPI.onAnswerReady(renderAnswer);
 
 window.stealthAPI.onAnswerUpNext(({ text }) => {
   const parsed = parseUpNext(text);
@@ -437,7 +479,9 @@ stageDiff.addEventListener('click', async () => {
   stageDiff.disabled = false;
   stageDiff.textContent = '↻ Differently';
 });
-function attachDiffButton(card, sourceText) {
+// `mountEl` is where the button lives (a card foot row); the Take-2 text always
+// lands in the card body itself.
+function attachDiffButton(card, sourceText, mountEl) {
   const btn = document.createElement('button');
   btn.className = 'card-diff';
   btn.textContent = '↻ Say it differently';
@@ -453,7 +497,7 @@ function attachDiffButton(card, sourceText) {
     if (out) source = out;
     btn.disabled = false;
   });
-  card.appendChild(btn);
+  (mountEl || card).appendChild(btn);
 }
 
 // ── Upsell ──
@@ -534,13 +578,16 @@ const needsConsent = () => activeModeId === 'interview' && !consentedThisRun;
 
   let accepted = false;
   try { accepted = localStorage.getItem(KEY) === AGREEMENT_VERSION; } catch (e) {}
-  if (accepted) { gate.classList.add('hidden'); return; }
+  // Deferred: startLaunchFlow awaits `modesReady`, declared further down this
+  // file — let the module finish evaluating before it runs.
+  if (accepted) { gate.classList.add('hidden'); queueMicrotask(startLaunchFlow); return; }
 
   checkbox.addEventListener('change', () => { acceptBtn.disabled = !checkbox.checked; });
   acceptBtn.addEventListener('click', () => {
     if (!checkbox.checked) return;
     try { localStorage.setItem(KEY, AGREEMENT_VERSION); } catch (e) {}
     gate.classList.add('hidden');
+    startLaunchFlow();
   });
   declineBtn.addEventListener('click', () => window.stealthAPI.closeApp());
 })();
@@ -556,6 +603,9 @@ function applyPlan(p) {
   // Re-render the mode menu so premium cards lock/unlock, and reflect the plan on
   // the upgrade button, whenever the plan changes (e.g. after a successful upgrade).
   if (Array.isArray(modes) && modes.length) renderModeMenu(activeModeId);
+  // The launch purpose picker locks premium cards too — re-render it if it's up
+  // when the plan lands (or flips after an upgrade).
+  if (typeof renderPurposeList === 'function' && purposeGate && !purposeGate.classList.contains('hidden')) renderPurposeList();
   if (typeof updateUpgradeUi === 'function') updateUpgradeUi();
 }
 applyPlan(plan); // paint the free layout until the backend says otherwise
@@ -696,7 +746,57 @@ async function initModes() {
   renderModeChip(activeModeId);
   renderModeMenu(activeModeId);
 }
-initModes();
+const modesReady = initModes();
+
+// ── Launch flow: purpose (required) → personal context (skippable) ──
+// Every launch starts by asking what this session is FOR, because the persona
+// behind every answer hangs off it — a wrong mode is a wrong answer, and the
+// old flow silently inherited whatever was picked last time. Purpose is
+// mandatory (no ✕, no skip); the context step right after it is optional.
+function renderPurposeList() {
+  if (!purposeList) return;
+  const isPremium = plan === 'premium';
+  purposeList.innerHTML = modes.map((m) => {
+    const locked = m.premium && !isPremium;
+    return `
+      <button class="purpose-card ${locked ? 'locked' : ''}" data-id="${m.id}" data-locked="${locked ? '1' : ''}">
+        <span class="pc-emoji">${m.emoji}</span>
+        <span class="pc-text">
+          <span class="pc-label">${escapeHtml(m.label)}${locked ? ' <span class="mi-lock">🔒 Premium</span>' : ''}</span>
+          <span class="pc-blurb">${escapeHtml(m.blurb)}</span>
+        </span>
+      </button>`;
+  }).join('');
+  purposeList.querySelectorAll('.purpose-card').forEach((el) => {
+    el.addEventListener('click', () => {
+      // A locked card can't be the purpose — it opens the upgrade flow and
+      // leaves this gate up, so the user still has to choose something.
+      if (el.getAttribute('data-locked')) { startUpgrade(); return; }
+      choosePurpose(el.getAttribute('data-id'));
+    });
+  });
+}
+
+async function choosePurpose(id) {
+  await window.stealthAPI.setActiveMode(id);
+  activeModeId = id;
+  renderModeChip(id);
+  renderModeMenu(id);
+  purposeGate.classList.add('hidden');
+  // Step 2 — who you are / what this is about. Skippable: the gate's
+  // "Continue without context" and ✕ both just close it.
+  if (needsConsent()) openConsent(() => openGate(id));
+  else openGate(id);
+}
+
+let launchFlowStarted = false;
+async function startLaunchFlow() {
+  if (launchFlowStarted || !purposeGate) return;
+  launchFlowStarted = true;
+  await modesReady;
+  renderPurposeList();
+  purposeGate.classList.remove('hidden');
+}
 
 modeContextEdit.addEventListener('click', () => {
   modeMenu.classList.add('hidden');
