@@ -644,18 +644,29 @@ body.collapsed .hb-ic-expand { display: block; }
    it the room to get there. */
 .feed-spacer { flex: 0 0 auto; }
 .qa-card {
-  padding: 2px 0 13px; margin-bottom: 13px;
+  padding: 2px 0 20px; margin-bottom: 20px;
   border-bottom: 1px solid var(--border); animation: fade var(--t);
+  /* Older Q→A pairs sit above the current one. They stay readable (scroll up and
+     they're right there) but step back, so the eye lands on the answer being
+     asked for RIGHT NOW without having to work out which card is the live one. */
+  opacity: 0.62; transition: opacity 180ms ease;
 }
-.qa-card:last-of-type { border-bottom: none; }
+/* `.current` is set by renderAnswer on the newest card. NOT :last-of-type — the
+   trailing .feed-spacer is also a div, so that selector never matched a card. */
+.qa-card.current { border-bottom: none; }
+.qa-card.current, .qa-card:hover { opacity: 1; }
+/* The question is CONTEXT; the answer is what gets said out loud. So they're
+   separated by three things at once — colour, size and a deliberate gap — rather
+   than the old near-identical bold-on-bold, which ran the two together. */
 .qa-q {
-  font-size: calc(var(--answer-size, 15px) - 0.5px); font-weight: 760;
-  line-height: 1.4; color: var(--text); margin-bottom: 9px;
+  font-size: calc(var(--answer-size, 15px) - 3px); font-weight: 620;
+  line-height: 1.45; color: var(--question-color, #7cc4ff);
+  margin-bottom: 14px;
 }
-.qa-note { font-size: 10.5px; color: var(--text-muted); margin: -4px 0 8px; }
-.qa-card .ans-list { display: flex; flex-direction: column; gap: 9px; }
+.qa-note { font-size: 10.5px; color: var(--text-muted); margin: -6px 0 12px; }
+.qa-card .ans-list { display: flex; flex-direction: column; gap: 11px; }
 .qa-card .ans-block .ab-say { font-size: var(--answer-size, 15px); font-weight: var(--answer-weight, 680); }
-.qa-foot { display: flex; align-items: center; gap: 9px; margin-top: 9px; min-height: 14px; }
+.qa-foot { display: flex; align-items: center; gap: 9px; margin-top: 13px; min-height: 14px; }
 .qa-foot:empty { display: none; }
 .qa-meta { margin-left: auto; font-size: 9.5px; color: var(--text-muted); opacity: 0.65; }
 .qa-upsell { font-size: 10.5px; color: var(--amber); cursor: pointer; }
@@ -841,12 +852,17 @@ body.collapsed .hb-ic-expand { display: block; }
    asked for (progressive disclosure — working memory is busy interviewing). */
 .app.focus .pane-extra { display: none; }
 .app.focus #transcript-pane { display: none; }
-.app.focus #suggestions-pane { display: none; }
-/* ...except on free, where there IS no stage to own the window (stageShow() is
-   Pro-only) — the suggestions feed is the primary object and answers render into
-   it. Hiding it here made "Answer now" look dead: the answer arrived and painted
-   into a display:none pane. */
-.app.focus.free #suggestions-pane { display: block; flex: 1; border-top: none; }
+/* The answer feed STAYS VISIBLE while live — it is the primary object, because
+   renderAnswer() only uses the stage when plan === 'pro' and the backend never
+   issues that (it issues 'free' / 'premium'), so in practice every answer lands
+   in this pane. It used to be hidden here for anyone not on `free`, which meant
+   a premium user's answer painted into a display:none pane and only appeared
+   after clicking the ticker to peek — the answer was there, just behind a
+   dropdown, exactly when there is no time to go looking for it. */
+.app.focus #suggestions-pane { display: block; flex: 1; border-top: none; }
+/* If the stage IS showing it owns the window, so the feed steps aside. Sibling
+   combinator, not :has() — #answerStage precedes the pane inside .app. */
+.app.focus #answerStage:not(.hidden) ~ #suggestions-pane { display: none; }
 .app.focus.peek #transcript-pane { display: block; flex: 1; }
 .app.focus.peek #suggestions-pane { display: block; flex: 1; border-top: 1px solid var(--border); }
 /* Focus mode: the stage is a fixed frame inside the window. The question is
