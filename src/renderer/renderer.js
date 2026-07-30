@@ -434,6 +434,11 @@ function renderAnswer({ question, text, ms, adaptiveUpsell, provider, detail, fo
       meta.textContent = metaBits.join(' · ');
       foot.appendChild(meta);
     }
+    // Mark the live card explicitly. `:last-of-type` can't do this job — the
+    // trailing .feed-spacer is a div too, so no .qa-card is ever the last div of
+    // its type and the rule silently never matched.
+    suggestionsPane.querySelectorAll('.qa-card.current').forEach((c) => c.classList.remove('current'));
+    card.classList.add('current');
     appendAtTop(suggestionsPane, card);
     currentFeedCard = card;
   }
