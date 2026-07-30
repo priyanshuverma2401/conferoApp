@@ -297,6 +297,44 @@ persists position, so every launch re-centres. Verified with a Win32
 y=12 (centred; the 436 reported width includes the invisible DWM border), and the
 "Hidden from share" indicator still sits clear at top-right.
 
+**Floating bar (logo · Collapse/Expand · End):** a small always-visible pill above the
+panel (`#hoverBar` in index.html, styled `.hover-bar` in styles.css) carrying the
+three controls that must survive every state — the Confero mark, a
+Collapse⇄Expand toggle, and a square End button. `body` is now a flex COLUMN (bar row + `.app`),
+so `.app` is `flex:1; min-height:0` instead of `height:100%`.
+- **Collapse/Expand** takes the panel off the CANDIDATE'S OWN screen — not the same
+  thing as the eye toggle, which hides Confero from the SCREEN SHARE. Capture,
+  transcript and the answer pipeline all keep running; Expand returns to a live
+  session, not a fresh one. Collapsing must also SHRINK THE WINDOW
+  (`setOverlayCollapsed` in `windows/overlayWindow.js`, IPC
+  `overlay:set-collapsed`, preload `setOverlayCollapsed`): a transparent
+  panel-sized window still eats every click over its area, so merely hiding the
+  DOM would leave an invisible 430×720 dead zone over the meeting. Collapsed
+  bounds are 190×64 — sized to the measured bar (169×41) plus shadow slack,
+  because every extra pixel is transparent window that still eats clicks. The window's height lock (min==max) has to be lifted and
+  re-applied around the resize — `win.__panelHeight`/`__maxWidth` remember it.
+  Collapse/expand happen around the window's CURRENT centre so a dragged bar
+  stays put, and expand is CLAMPED to the display's workArea — the bar is small
+  enough to park in a corner, and growing back from there would push the panel
+  (and its drag handle) off-screen. An answer arriving while collapsed puts an amber
+  dot on Expand (`.hb-toggle.has-news`, amber so it reads on the blue button).
+  Wording: the pair is COLLAPSE/EXPAND, not Hide/Ask — "hide" already means
+  "hide from screen share" everywhere else in this product, and two different
+  hides in one window is exactly the confusion that gets someone caught.
+- **End** is the existing end-session flow, extracted to `endSessionFlow()` and
+  shared with the action-bar `#endBtn`: it expands first (a report you can't see
+  is useless), stops capture, then builds transcript + summary.
+- The whole bar is a drag region (buttons are `no-drag`), so it doubles as the
+  grab handle when the panel is collapsed and there's no header to grab.
+Verified via CDP with REAL `Input.dispatchMouseEvent` clicks + Win32
+`GetWindowRect`: Collapse → window 191×64 (bar measured 162×41 inside it) and the
+bar renders as logo / blue "⌄ Expand" / square; Expand → back to 436×720; End from
+the collapsed bar → panel returns AND the
+report modal opens; 11 consecutive toggles alternate exactly (one handler hit
+each); dragged to 1400,500 then expanded → clamped to x=1100 y=96, fully
+on-screen. The dock tip was reworded (it told users to drag under the webcam;
+the window now opens there).
+
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
    append in `getSystemPrompt`, add a small settings field targeting the active mode.

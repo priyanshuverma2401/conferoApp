@@ -9,6 +9,36 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Floating bar: the ONLY thing left on screen once the panel is hidden, so it
+       carries the three controls you can't lose mid-call — who this is, hide/show,
+       and end. It stays put in both states; the panel below it comes and goes. -->
+  <div class="hover-bar" id="hoverBar">
+    <span class="hb-logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="12" fill="url(#hbGrad)"/>
+        <path d="M16.8 8.1a5.4 5.4 0 1 0 0 7.8" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="16.9" cy="12" r="1.7" fill="#fff"/>
+        <defs>
+          <linearGradient id="hbGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+            <stop style="stop-color:var(--accent)"/>
+            <stop offset="1" style="stop-color:var(--accent-2)"/>
+          </linearGradient>
+        </defs>
+      </svg>
+    </span>
+    <!-- Collapse ⇄ Expand. Same button, two states: collapsing is a quiet chevron
+         up, expanding is the primary blue action (it's what you reach for under
+         pressure), with the chevron pointing back down at the panel. -->
+    <button id="hbToggle" class="hb-toggle" title="Collapse Confero to this bar — the session keeps running">
+      <svg class="hb-ic-collapse" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 7.5L6 4.5L9 7.5"/></svg>
+      <svg class="hb-ic-expand" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
+      <span id="hbToggleLabel">Collapse</span>
+    </button>
+    <button id="hbEnd" class="hb-end" title="End the session — builds the transcript + summary">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><rect x="1.5" y="1.5" width="9" height="9" rx="2"/></svg>
+    </button>
+  </div>
+
   <div class="app" id="app">
     <!-- Header: brand · mode · history · settings · close -->
     <div class="header">
@@ -72,7 +102,7 @@
          window; transcript shrinks to the one-line ticker below it. -->
     <div id="answerStage" class="answer-stage hidden">
       <div id="dockTip" class="dock-tip hidden">
-        <span>Tip: drag Confero right under your webcam — glancing here looks like eye contact.</span>
+        <span>Tip: Confero opens right under your webcam — glancing here looks like eye contact.</span>
         <button id="dockTipClose" class="close-btn" title="Dismiss">&times;</button>
       </div>
       <!-- Sticky top row: question + rephrase, always visible without scrolling

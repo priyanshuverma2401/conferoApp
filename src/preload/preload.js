@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld('stealthAPI', {
   // state actually applied — it can come back false if the proctoring guardrail
   // refused to re-hide the overlay.
   setStealthEnabled: (enabled) => ipcRenderer.invoke('stealth:set', enabled),
+  // Floating-bar Hide/Ask: collapse the window down to the bar and back. The
+  // session keeps running either way — this is not a stop and not a close.
+  setOverlayCollapsed: (collapsed) => ipcRenderer.invoke('overlay:set-collapsed', collapsed),
   onStealthStateChanged: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('stealth:state-changed', listener);

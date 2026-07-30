@@ -44,6 +44,10 @@ function createOverlayWindow() {
   // Lock the height (min == max) so only the width is draggable.
   win.setMinimumSize(360, winHeight);
   win.setMaximumSize(Math.max(1100, screenWidth), winHeight);
+  // Remembered so the collapse/expand toggle below can restore the exact lock —
+  // it has to lift it to shrink the window down to the floating bar.
+  win.__panelHeight = winHeight;
+  win.__maxWidth = Math.max(1100, screenWidth);
 
   win.setAlwaysOnTop(true, 'screen-saver');
   // Stealth on by default. CONFERO_DEV_VISIBLE=1 disables content protection so
@@ -55,4 +59,44 @@ function createOverlayWindow() {
   return win;
 }
 
-module.exports = { createOverlayWindow };
+// "Hide" on the floating bar: the panel goes away but the SESSION keeps running,
+// so the window has to shrink to just the bar. Leaving it panel-sized with a
+// transparent body would look right and behave wrong — a transparent window still
+// eats every click over its area, so the meeting underneath would stop responding.
+// Sized to the bar itself (measured 169×41 plus the body's 6px top / 8px bottom),
+// with only enough slack for the drop shadow and for font metrics to differ on
+// another machine. Every extra pixel here is transparent window that still
+// swallows clicks meant for the meeting underneath.
+const BAR = { width: 190, height: 64 };
+
+function setOverlayCollapsed(win, collapsed) {
+  if (!win || win.isDestroyed()) return null;
+  const now = win.getBounds();
+  if (collapsed) {
+    if (!win.__expandedBounds) win.__expandedBounds = now;
+    // Collapse around the window's CURRENT centre, not the screen's: if the user
+    // dragged Confero somewhere, the bar should stay where they put it.
+    const x = Math.round(now.x + (now.width - BAR.width) / 2);
+    win.setMinimumSize(BAR.width, BAR.height);
+    win.setMaximumSize(BAR.width, BAR.height);
+    win.setBounds({ x, y: now.y, width: BAR.width, height: BAR.height });
+  } else {
+    const prev = win.__expandedBounds || {};
+    const width = prev.width || 430;
+    const height = win.__panelHeight || prev.height || 600;
+    win.setMinimumSize(360, height);
+    win.setMaximumSize(win.__maxWidth || 1100, height);
+    // Re-expand around the bar's centre for the same reason — but CLAMPED to the
+    // display it's on. The bar is small enough to park in a corner; growing back
+    // to full size from there would push the panel (and its drag handle, and the
+    // answer) off-screen with no way to get it back.
+    const area = screen.getDisplayNearestPoint({ x: now.x + Math.round(now.width / 2), y: now.y }).workArea;
+    const x = Math.min(Math.max(Math.round(now.x + (now.width - width) / 2), area.x), area.x + area.width - width);
+    const y = Math.min(Math.max(now.y, area.y), area.y + Math.max(0, area.height - height));
+    win.setBounds({ x, y, width, height });
+    win.__expandedBounds = null;
+  }
+  return { collapsed: Boolean(collapsed) };
+}
+
+module.exports = { createOverlayWindow, setOverlayCollapsed };

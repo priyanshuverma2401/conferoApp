@@ -17,6 +17,9 @@ const stopBtn = document.getElementById('stopBtn');
 const clearBtn = document.getElementById('clearBtn');
 const endBtn = document.getElementById('endBtn');
 const closeBtn = document.getElementById('closeBtn');
+const hbToggle = document.getElementById('hbToggle');
+const hbToggleLabel = document.getElementById('hbToggleLabel');
+const hbEnd = document.getElementById('hbEnd');
 const errorBanner = document.getElementById('error-banner');
 const modeChip = document.getElementById('modeChip');
 const upgradeBtn = document.getElementById('upgradeBtn');
@@ -375,6 +378,9 @@ window.stealthAPI.onAnswerQuick(({ text }) => {
 // renders them as Cluely-style bullets with the spoken words in bold.
 function renderAnswer({ question, text, ms, adaptiveUpsell, provider, detail, format }) {
   resetHelpBtn();
+  // Panel hidden: the answer still renders into the (hidden) pane, so all that's
+  // needed is a dot on Ask saying there's something waiting behind it.
+  if (uiHidden) hbToggle.classList.add('has-news');
   const note = extractNote(text);
   const codeMode = isCodeAnswer(text, format);
   const blocks = codeMode ? null : toBlocks(text);
@@ -1040,6 +1046,25 @@ clearBtn.addEventListener('click', async () => {
 
 closeBtn.addEventListener('click', () => window.stealthAPI.closeApp());
 
+// ── Floating bar: Collapse ⇄ Expand ──
+// Collapses the PANEL out of the candidate's own view and shrinks the window to
+// the bar. Deliberately not a stop and not a close: capture, transcript and the
+// question pipeline all keep running, so Expand brings back a live session, not
+// a fresh one. (Separate from "hide from screen share", which is about what the
+// OTHER people on the call can see.)
+let uiHidden = false;
+function setUiHidden(hidden) {
+  uiHidden = Boolean(hidden);
+  document.body.classList.toggle('collapsed', uiHidden);
+  hbToggleLabel.textContent = uiHidden ? 'Expand' : 'Collapse';
+  hbToggle.title = uiHidden
+    ? 'Expand Confero back to the full panel'
+    : 'Collapse Confero to this bar — the session keeps running';
+  if (!uiHidden) hbToggle.classList.remove('has-news');
+  window.stealthAPI.setOverlayCollapsed(uiHidden);
+}
+hbToggle.addEventListener('click', () => setUiHidden(!uiHidden));
+
 // ── Draggable divider (idle/review layout) ──
 (function initDivider() {
   const saved = Number(localStorage.getItem('confero.transcriptPx'));
@@ -1353,15 +1378,20 @@ async function runEndSession() {
 
 // End = stop listening, then report. Stopping first means the summary covers the
 // whole call and no late transcript chunk lands after it was written.
-endBtn.addEventListener('click', async () => {
+async function endSessionFlow() {
   if (endBusy) return;
+  // Reachable from the floating bar while the panel is hidden — the report has to
+  // be on screen to be read, so come back first.
+  if (uiHidden) setUiHidden(false);
   if (isCapturing) {
     window.audioCapture.stopAudioCapture();
     await window.stealthAPI.stopCapture();
     setCapturingUi(false);
   }
   runEndSession();
-});
+}
+endBtn.addEventListener('click', endSessionFlow);
+hbEnd.addEventListener('click', endSessionFlow);
 
 document.querySelectorAll('.end-tab').forEach((tab) => {
   tab.addEventListener('click', () => {

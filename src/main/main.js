@@ -2,7 +2,7 @@ const fs = require('fs');
 const { app, session, desktopCapturer, screen, ipcMain, dialog, shell, globalShortcut } = require('electron');
 const { initMain: initLoopbackAudio } = require('electron-audio-loopback');
 const { loadConfig, isSetupComplete, PRODUCT_NAME, resolveBackendUrl } = require('./config/configLoader');
-const { createOverlayWindow } = require('./windows/overlayWindow');
+const { createOverlayWindow, setOverlayCollapsed } = require('./windows/overlayWindow');
 const { createIndicatorWindow } = require('./windows/indicatorWindow');
 const { createOnboardingWindow } = require('./windows/onboardingWindow');
 const { createSnipWindow } = require('./windows/snipWindow');
@@ -195,6 +195,12 @@ function startMainApp() {
     await userSettingsStore.saveUserSettings({ hideFromScreenShare: want });
     return { enabled: want, blocked: Boolean(enabled) && Boolean(proctoringDetected) };
   });
+
+  // Floating-bar "Hide": shrink the window to the bar (and back). Distinct from
+  // stealth:set above — that one hides Confero from the SCREEN SHARE, this one
+  // hides the panel from the candidate's own screen. Neither ends the session.
+  ipcMain.handle('overlay:set-collapsed', (_event, collapsed) =>
+    setOverlayCollapsed(overlayWin, Boolean(collapsed)));
 
   const send = (channel, payload) => {
     if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send(channel, payload);

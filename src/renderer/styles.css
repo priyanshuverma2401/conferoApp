@@ -58,6 +58,9 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
 html, body { width: 100%; height: 100%; background: transparent; color: var(--text); overflow: hidden; }
+/* The floating bar sits ABOVE the panel as its own row, so hiding the panel
+   leaves the bar exactly where it was instead of making it jump. */
+body { display: flex; flex-direction: column; padding: 6px 2px 2px; }
 
 /* Generic hide utility. Without this, toggling a `hidden` class on a plain
    element (like the consent modal's two states) did nothing — only the
@@ -74,7 +77,9 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
   position: relative;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* flex:1, not height:100% — body is now a column with the floating bar above. */
+  flex: 1;
+  min-height: 0;
   /* Translucent while idle so the call behind stays visible; solid on hover,
      because hovering means the user is reading. Plain alpha only — no OS blur
      tricks that could interact badly with content protection. */
@@ -89,6 +94,57 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 .app:hover {
   background: var(--app-bg-solid);
 }
+/* Hidden from the candidate's own screen — the session is still running, the
+   window has already been shrunk to bar size by the main process. */
+body.collapsed .app { display: none; }
+
+/* ── Floating bar ──
+   Three controls that must survive every state: the mark (whose app this is),
+   hide/show, and end. Draggable as a whole, so it doubles as the grab handle
+   when the panel is hidden and there's no header to grab. */
+.hover-bar {
+  -webkit-app-region: drag;
+  flex-shrink: 0; align-self: center;
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 8px; padding: 6px 8px;
+  background: linear-gradient(180deg, rgba(32,36,44,0.96), rgba(18,21,27,0.97));
+  border: 1px solid var(--border); border-radius: 999px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  backdrop-filter: blur(18px);
+}
+.hb-logo { width: 26px; height: 26px; flex-shrink: 0; display: inline-flex; }
+.hb-logo svg { width: 100%; height: 100%; display: block; }
+
+.hb-toggle {
+  -webkit-app-region: no-drag; position: relative;
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 27px; padding: 0 12px; border: none; border-radius: 999px;
+  background: var(--surface-2); color: var(--text);
+  font-size: 12px; font-weight: 620; cursor: pointer; transition: var(--t);
+}
+.hb-toggle:hover { background: var(--surface-hover); }
+.hb-ic-expand { display: none; }
+/* Collapsed: expanding the panel again is the primary action, so it becomes the
+   one blue thing on screen. */
+body.collapsed .hb-toggle { background: var(--accent); color: #08101a; }
+body.collapsed .hb-toggle:hover { background: #74b6ee; }
+body.collapsed .hb-ic-collapse { display: none; }
+body.collapsed .hb-ic-expand { display: block; }
+/* An answer landed while the panel was collapsed. Amber, not accent — it has to
+   read on top of the blue Expand button. */
+.hb-toggle.has-news::after {
+  content: ''; position: absolute; top: -1px; right: -1px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--amber); box-shadow: 0 0 0 2px rgba(18,21,27,0.9);
+}
+
+.hb-end {
+  -webkit-app-region: no-drag;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 27px; height: 27px; padding: 0; border: none; border-radius: 50%;
+  background: var(--surface-2); color: var(--text); cursor: pointer; transition: var(--t);
+}
+.hb-end:hover { background: var(--danger-soft); color: var(--danger); }
 
 /* Header */
 .header {
