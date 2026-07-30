@@ -147,9 +147,17 @@ function startMainApp() {
 
   // Trusted local content only (no remote pages load in this app) — safe to
   // auto-grant the mic/system-audio capture permissions it needs.
+  // clipboard-write belongs here too: without it every `navigator.clipboard`
+  // call rejects with NotAllowedError, which silently broke EVERY copy button
+  // in the app (session summary/transcript, past sessions, Code Assist's code
+  // Copy). Both handlers are needed — Chromium asks the CHECK handler on the
+  // clipboard path, not the request handler.
+  const ALLOWED_PERMISSIONS = ['media', 'display-capture', 'clipboard-write', 'clipboard-sanitized-write'];
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(['media', 'display-capture'].includes(permission));
+    callback(ALLOWED_PERMISSIONS.includes(permission));
   });
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) =>
+    ALLOWED_PERMISSIONS.includes(permission));
 
   // Pre-warm Chromium's screen-source enumeration at launch, invisibly, instead
   // of paying its multi-second first-call cost when the user clicks Start.

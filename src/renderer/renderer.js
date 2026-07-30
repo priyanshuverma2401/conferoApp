@@ -860,6 +860,7 @@ let viewedSession = null;
 async function viewSession(id) {
   const s = await window.stealthAPI.getSession(id);
   if (!s) return;
+  if (s.summary) s.summary = normalizeSummary(s.summary); // same repair as the live report
   viewedSession = s;
   const parts = [];
   if (s.summary) parts.push(`<span class="sv-summary">${summaryHtml(s.summary)}</span>`);
@@ -1124,7 +1125,7 @@ const endModal = document.getElementById('endModal');
 const endMeta = document.getElementById('endMeta');
 const endBody = document.getElementById('endBody');
 const endCopy = document.getElementById('endCopy');
-const endCopyBoth = document.getElementById('endCopyBoth');
+const endActions = document.getElementById('endActions');
 const endRetry = document.getElementById('endRetry');
 const endClose = document.getElementById('endClose');
 const endHint = document.getElementById('endHint');
@@ -1135,43 +1136,142 @@ let endBusy = false;
 
 // Copy with in-place confirmation — a toast would be one more thing to read
 // mid-flow, and the button is where the user is already looking.
+// An icon button has no label to swap, so it confirms by flipping to a tick —
+// writing text into it would wipe the SVG.
 function copyWithFeedback(text, btn, done = 'Copied ✓') {
   if (!text) return;
-  const label = btn.querySelector('span') || btn;
-  const original = label.textContent;
+  const isIcon = btn.classList.contains('icon-copy');
+  const label = isIcon ? null : (btn.querySelector('span') || btn);
+  const original = label ? label.textContent : '';
   navigator.clipboard.writeText(text).then(() => {
+    if (isIcon) {
+      btn.classList.add('copied');
+      clearTimeout(btn.copyTimer);
+      btn.copyTimer = setTimeout(() => btn.classList.remove('copied'), 1500);
+      return;
+    }
     label.textContent = done;
     setTimeout(() => { label.textContent = original; }, 1500);
   }).catch(() => showError("Couldn't copy to clipboard."));
 }
 
-// The summary comes back as plain text with ALL-CAPS section headings and "-"
-// bullets (see buildSessionSummaryPrompt) — render that shape, and degrade to
-// plain paragraphs if a model ignores the format.
-// Every line becomes a BLOCK, and the pieces are joined with nothing: the pane
-// is white-space:pre-wrap for the transcript, so joining with "\n" here would
-// add a blank line on top of each block and double-space the whole summary.
-function summaryHtml(text) {
-  return text
-    .split(/\r?\n/)
-    .map((raw) => {
-      const line = raw.trim();
-      if (!line) return '';
-      if (/^[A-Z][A-Z0-9 &/'’,.\-]{2,}$/.test(line) && !/[.!?]$/.test(line)) {
-        return `<span class="eb-h">${escapeHtml(line)}</span>`;
-      }
-      if (/^[-•*]\s+/.test(line)) {
-        return `<span class="eb-b">• ${escapeHtml(line.replace(/^[-•*]\s+/, ''))}</span>`;
-      }
-      return `<span class="eb-p">${escapeHtml(line)}</span>`;
-    })
-    .filter(Boolean)
-    .join('');
+// ── Summary rendering ──
+// The summary is asked for as plain text with ALL-CAPS section headings and "-"
+// bullets (see buildSessionSummaryPrompt), but the free-tier models we fall back
+// to drop that shape under load — they answer in markdown, or in one prose blob.
+// A wall of prose is useless as minutes, so this parser REPAIRS the shape rather
+// than passing it through: it recognises the heading/bullet forms models
+// actually emit, and splits prose that landed in a bullet section into one
+// bullet per sentence.
+// Every piece is a BLOCK and they're joined with nothing: the pane is
+// white-space:pre-wrap for the transcript, so joining with "\n" would put a
+// blank line on top of each block and double-space the whole summary.
+
+// The headings we ask for, across all modes (SUMMARY_SHAPES) — matched so a
+// heading is still recognised when a model writes it in Title Case.
+const SUMMARY_HEADINGS = new Set([
+  'OVERVIEW', 'SUMMARY', 'KEY POINTS', 'DECISIONS', 'DECISIONS & CONCLUSIONS',
+  'ACTION ITEMS & NEXT STEPS', 'ACTION ITEMS', 'NEXT STEPS',
+  'QUESTIONS & HOW THEY WERE ANSWERED', 'PROBLEMS & APPROACHES', 'WHAT WAS COVERED',
+]);
+const BULLET_RE = /^\s*(?:[-–—•*‣]|\d+[.)])\s+/;
+
+// Longest-first so "ACTION ITEMS & NEXT STEPS" wins over "ACTION ITEMS".
+const HEADINGS_ALT = [...SUMMARY_HEADINGS]
+  .sort((a, b) => b.length - a.length)
+  .map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  .join('|');
+// Case-SENSITIVE on purpose: only the ALL-CAPS form is a heading here, so "key
+// points were raised" in a sentence is never treated as a section break. The
+// lookbehind stops "ACTION ITEMS & NEXT STEPS" from being cut in half at its
+// own conjunction — "NEXT STEPS" is also a heading in its own right.
+const INLINE_HEADING_RE = new RegExp(`(?<![&+])\\s+(?=(?:${HEADINGS_ALT})\\b)`, 'g');
+// Same conjunction guard: without the (?![&+]) the alternation backtracks to the
+// short "ACTION ITEMS" and breaks the line at "& NEXT STEPS".
+const OWN_LINE_HEADING_RE = new RegExp(`^(${HEADINGS_ALT})[ \\t]*:?[ \\t]+(?![&+])(?=\\S)`, 'gm');
+// A collapsed list separates its items with ". - ", never a bare " - ": the
+// sentence punctuation is what tells a run-on bullet list apart from a dash
+// used as punctuation ("the client - who joined late - agreed").
+const INLINE_BULLET_RE = /(?<=[.;:!?])\s+[-•]\s+/g;
+
+// The worst real failure: a weak model returns the whole summary on ONE physical
+// line — "OVERVIEW ... KEY POINTS - a. - b. - c." — which is exactly the "it's
+// just one paragraph" complaint. Put the line breaks back before anything is
+// parsed or copied. Idempotent, so a well-formed summary passes through untouched.
+function normalizeSummary(text) {
+  const t = String(text || '').replace(/\r\n?/g, '\n').trim();
+  if (!t) return '';
+  return t
+    .replace(INLINE_HEADING_RE, '\n')
+    .replace(OWN_LINE_HEADING_RE, '$1\n')
+    .split('\n')
+    .map((line) => line.replace(INLINE_BULLET_RE, '\n- '))
+    .join('\n');
 }
 
-function endBothText() {
-  if (!endReport) return '';
-  return [endReport.summary, endReport.transcript].filter(Boolean).join('\n\n');
+// Models emit **bold** headings and `#` headings despite "no markdown".
+function stripMd(line) {
+  return line
+    .replace(/^\s*#{1,6}\s+/, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/`/g, '')
+    .trim();
+}
+
+// Returns the canonical heading, or null if this line is body text.
+function summaryHeading(line) {
+  const t = line.replace(/[:：]\s*$/, '').trim();
+  if (!t || t.length > 52 || BULLET_RE.test(line)) return null;
+  if (/^[A-Z][A-Z0-9 &/'’,.\-]{2,}$/.test(t) && !/[.!?]$/.test(t)) return t.toUpperCase();
+  return SUMMARY_HEADINGS.has(t.toUpperCase()) ? t.toUpperCase() : null;
+}
+
+// Split a prose run into sentences so it can be re-bulleted. Only breaks on
+// terminal punctuation followed by a capital, so "3.4 seconds" and "p99." stay put.
+function sentences(text) {
+  return text
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+(?=["'(]?[A-Z0-9])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function summaryHtml(text) {
+  const lines = normalizeSummary(text).split('\n').map(stripMd).filter(Boolean);
+  // Group into sections first — whether a stray prose line is legitimate
+  // (OVERVIEW) or a formatting failure (a bullet section) depends on its heading.
+  const sections = [];
+  let cur = { head: null, body: [] };
+  for (const line of lines) {
+    const h = summaryHeading(line);
+    if (h) {
+      if (cur.head || cur.body.length) sections.push(cur);
+      cur = { head: h, body: [] };
+    } else {
+      cur.body.push(line);
+    }
+  }
+  if (cur.head || cur.body.length) sections.push(cur);
+
+  // Worst case: the model ignored the format completely and sent back a blob.
+  // Bullet the sentences rather than reprinting the paragraph.
+  const unstructured = !sections.some((s) => s.head)
+    && !sections.some((s) => s.body.some((l) => BULLET_RE.test(l)));
+
+  const bullet = (t) => `<span class="eb-b">• ${escapeHtml(t)}</span>`;
+  const out = [];
+  for (const s of sections) {
+    if (s.head) out.push(`<span class="eb-h">${escapeHtml(s.head)}</span>`);
+    // OVERVIEW is meant to be sentences; everything else is a bullet section.
+    const proseOk = s.head ? /^(OVERVIEW|SUMMARY)$/.test(s.head) : !unstructured;
+    for (const line of s.body) {
+      if (BULLET_RE.test(line)) out.push(bullet(line.replace(BULLET_RE, '')));
+      else if (proseOk) out.push(`<span class="eb-p">${escapeHtml(line)}</span>`);
+      else sentences(line).forEach((sn) => out.push(bullet(sn)));
+    }
+  }
+  return out.join('');
 }
 
 function renderEndBody() {
@@ -1179,19 +1279,21 @@ function renderEndBody() {
   document.querySelectorAll('.end-tab').forEach((t) => {
     t.classList.toggle('active', t.getAttribute('data-tab') === endTab);
   });
-  const copyLabel = endCopy.querySelector('span');
-  copyLabel.textContent = endTab === 'transcript' ? 'Copy transcript' : 'Copy summary';
+  // The corner icon copies whatever tab is open; the tooltip is the only place
+  // that can say which, so it has to track the tab.
+  endCopy.title = endTab === 'transcript' ? 'Copy transcript' : 'Copy summary';
+  endCopy.classList.remove('copied');
 
   if (!endReport) {
     endBody.innerHTML = '<span class="eb-wait">Wrapping up the session…</span>';
     endCopy.disabled = true;
-    endCopyBoth.disabled = true;
+    endActions.classList.add('hidden');
     return;
   }
   if (endReport.empty) {
     endBody.innerHTML = '<span class="eb-wait">Nothing was captured in this session — there\'s no transcript to summarize yet.</span>';
     endCopy.disabled = true;
-    endCopyBoth.disabled = true;
+    endActions.classList.add('hidden');
     return;
   }
   if (endTab === 'transcript') {
@@ -1207,8 +1309,9 @@ function renderEndBody() {
     endBody.innerHTML = '<span class="eb-wait">Reading back the session and writing the summary…</span>';
     endCopy.disabled = true;
   }
-  endCopyBoth.disabled = !endReport.summary;
-  endRetry.classList.toggle('hidden', !endReport.error);
+  // The footer row now holds nothing but Retry, so hide the row itself — an
+  // empty flex box still costs a gate-card gap.
+  endActions.classList.toggle('hidden', !endReport.error);
 }
 
 function openEndModal() {
@@ -1223,10 +1326,13 @@ async function runEndSession() {
   endTab = 'summary';
   endMeta.textContent = 'Ending session…';
   endHint.textContent = '';
-  endRetry.classList.add('hidden');
+  endActions.classList.add('hidden');
   openEndModal();
   try {
     const res = await window.stealthAPI.endSession();
+    // Repair the line breaks once, here — so the copied/pasted summary is as
+    // well-formatted as the one on screen, not a single run-on line.
+    if (res && res.summary) res.summary = normalizeSummary(res.summary);
     endReport = res;
     const s = res.stats || {};
     endMeta.textContent = res.empty
@@ -1268,7 +1374,6 @@ endCopy.addEventListener('click', () => {
   if (!endReport) return;
   copyWithFeedback(endTab === 'transcript' ? endReport.transcript : endReport.summary, endCopy);
 });
-endCopyBoth.addEventListener('click', () => copyWithFeedback(endBothText(), endCopyBoth));
 endRetry.addEventListener('click', runEndSession);
 endClose.addEventListener('click', () => endModal.classList.add('hidden'));
 document.addEventListener('keydown', (e) => {
