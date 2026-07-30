@@ -11,7 +11,12 @@ function createOverlayWindow() {
   // answer/controls must always fit without clipping. Width alone stretches, so
   // the user can widen for long answers. (Locked via min/max size below.)
   const winHeight = Math.min(720, screenHeight - 60);
-  const winWidth = 430;
+  // Width is HALF the screen (1.5/3), not a fixed 430px: the same pixel count is
+  // a comfortable column on a laptop and a thin strip on a 4K panel. Half gives
+  // answers enough line length to read in a glance and still leaves the other
+  // half of the call visible behind it. Floored at the resize minimum so a small
+  // display can't launch into an unusable sliver.
+  const winWidth = Math.max(360, Math.round(screenWidth / 2));
 
   // Opens TOP-CENTRE — directly under the laptop camera. Reading an answer then
   // costs the smallest possible eye movement away from the lens, so the candidate
@@ -48,6 +53,7 @@ function createOverlayWindow() {
   // it has to lift it to shrink the window down to the floating bar.
   win.__panelHeight = winHeight;
   win.__maxWidth = Math.max(1100, screenWidth);
+  win.__defaultWidth = winWidth;
 
   win.setAlwaysOnTop(true, 'screen-saver');
   // Stealth on by default. CONFERO_DEV_VISIBLE=1 disables content protection so
@@ -82,7 +88,10 @@ function setOverlayCollapsed(win, collapsed) {
     win.setBounds({ x, y: now.y, width: BAR.width, height: BAR.height });
   } else {
     const prev = win.__expandedBounds || {};
-    const width = prev.width || 430;
+    // Whatever width it had before collapsing — falling back to the launch width,
+    // not a hardcoded number, or expanding could resize a window the user had
+    // deliberately widened.
+    const width = prev.width || win.__defaultWidth || 430;
     const height = win.__panelHeight || prev.height || 600;
     win.setMinimumSize(360, height);
     win.setMaximumSize(win.__maxWidth || 1100, height);
