@@ -266,6 +266,37 @@ only one of the two is not enough. Verified with REAL trusted clicks via
 by reading the OS clipboard back with `Get-Clipboard`: summary tab → formatted
 summary, transcript tab → transcript, Code Assist → the code block.
 
+**Default theme repainted — professional graphite + light blue:** the old
+purple/pink duotone (`#7c5cff` + `#ff6bd6` on a purple-tinted `#1a1626` shell)
+read as consumer/childish for a tool that sits on top of a real client call. The
+Default theme is now a NEUTRAL graphite shell (`--bg-top:#191c22`,
+`--bg-bot:#0e1116`, app-bg/settings/mode-menu/snip overlay all de-tinted) with a
+SINGLE calm light-blue accent (`--accent:#5da9e9`, `--accent-2:#3f8ecb`,
+`--accent-soft: rgba(93,169,233,.14)`) — light blue on purpose, not the standard
+SaaS `#2563eb`. Purple was also hardcoded in ~30 places outside `:root`
+(`rgba(124,92,255,x)`, `#cbbcff`, `#d3c8ff`, `#f4f2fb`) — those were swapped for
+the blue equivalents (`rgba(93,169,233,x)`, `#9fcdf2`, `#c2dff5`, `#eef1f5`) in
+`styles.css`, `onboarding.css`, `snipOverlay.html`, `indicatorWindow.html`,
+`index.html` (the Default swatch dot) and the `signinFlow.js` inline page, so
+nothing is left half-purple. The primary CTA is now FLAT `var(--accent)` with
+near-black label text instead of a gradient, and the coloured glow shadows became
+plain neutral depth shadows — gradients + glows are what made it look like a
+consumer app. Matrix theme untouched (it overrides the same variables). Verified
+via CDP screenshots: purpose gate, context gate, idle, transcript + answer card,
+settings panel.
+
+**Overlay opens top-centre (under the laptop camera):** it used to launch pinned
+to the top-RIGHT (`x: screenWidth - winWidth - 20, y: 40`), so reading an answer
+meant an obvious sideways glance on camera. `overlayWindow.js` now starts it
+horizontally centred at `y: areaY + 12` — directly below the webcam, the shortest
+eye movement off the lens. Uses `display.workArea` (not `workAreaSize`) so the
+origin is right when the taskbar is on the top/left. Only the STARTING bounds
+changed: the window is still freely draggable and width-resizable, and nothing
+persists position, so every launch re-centres. Verified with a Win32
+`GetWindowRect` read on the live window: work area 1536×816 → window at x=552
+y=12 (centred; the 436 reported width includes the invisible DWM border), and the
+"Hidden from share" indicator still sits clear at top-right.
+
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
    append in `getSystemPrompt`, add a small settings field targeting the active mode.

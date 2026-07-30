@@ -18,7 +18,7 @@ function startSignin({ backendUrl }) {
       const token = url.searchParams.get('token');
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(
-        `<!DOCTYPE html><html><body style="background:#0e0b1a;color:#f4f2fb;font-family:-apple-system,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center">` +
+        `<!DOCTYPE html><html><body style="background:#0e1116;color:#eef1f5;font-family:-apple-system,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center">` +
         `<div><h2 style="font-weight:600">You're signed in to Confero</h2>` +
         `<p style="opacity:.6">You can close this tab and return to the app.</p></div></body></html>`
       );
