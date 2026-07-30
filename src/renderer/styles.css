@@ -15,6 +15,9 @@
   --success: #35d68a;
   --success-soft: rgba(53, 214, 138, 0.13);
   --amber: #ffb84d;
+  /* Filled status-banner backgrounds (white text sits on these). */
+  --banner-err: #c9384a;
+  --banner-ok: #14875a;
   --radius-lg: 16px;
   --radius: 10px;
   --radius-sm: 7px;
@@ -220,11 +223,17 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 }
 .mode-context-save:hover { background: rgba(124,92,255,0.28); }
 
+/* Status banner — SOLID fill, white text. This is what tells you whether the
+   overlay is hidden from the screen share, and a faint tint with coloured text
+   was too easy to skim past; a filled red/green block reads at a glance from
+   across the room. The fills are darker than --danger/--success on purpose:
+   white on #ff5a6a / #35d68a is barely legible, these clear 4.5:1. */
 .error-banner {
-  background: var(--danger-soft); border-left: 3px solid var(--danger);
-  color: #ffc2c8; font-size: 11px; padding: 7px 10px; margin: 8px 12px 0; border-radius: var(--radius-sm);
+  background: var(--banner-err); border-left: 3px solid rgba(0,0,0,0.28);
+  color: #fff; font-size: 11px; font-weight: 600;
+  padding: 7px 10px; margin: 8px 12px 0; border-radius: var(--radius-sm);
 }
-.error-banner.ok { background: var(--success-soft); border-left-color: var(--success); color: #b8f0d4; }
+.error-banner.ok { background: var(--banner-ok); border-left-color: rgba(0,0,0,0.28); color: #fff; }
 
 .pane-label {
   font-size: 9px; font-weight: 660; text-transform: uppercase; letter-spacing: 0.11em;
