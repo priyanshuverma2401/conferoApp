@@ -34,6 +34,20 @@
           <span id="modeEmoji">🎓</span><span id="modeLabel">Tutoring</span>
           <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
         </button>
+        <!-- "Hide from screen share" (content protection). Deliberately NOT
+             called stealth: the people buying this aren't technical, and the
+             eye/eye-off pair plus this wording says exactly what it does. -->
+        <button id="shareHideBtn" class="btn-icon share-hide" title="Hidden from screen share">
+          <svg class="ic-hidden" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <path d="M6.3 3.4A6.6 6.6 0 0 1 8 3.2c3.3 0 5.6 2.6 6.4 3.9.2.3.2.6 0 .9-.3.5-.9 1.3-1.8 2.1M4.1 4.6C2.7 5.6 1.9 6.8 1.6 7.1a.9.9 0 0 0 0 .9C2.4 9.3 4.7 11.9 8 11.9c1 0 1.9-.2 2.7-.6"/>
+            <path d="M6.6 6.6a2 2 0 0 0 2.8 2.8"/>
+            <path d="M2 2l12 12"/>
+          </svg>
+          <svg class="ic-visible" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <path d="M1.6 7.1C2.4 5.8 4.7 3.2 8 3.2s5.6 2.6 6.4 3.9c.2.3.2.6 0 .9-.8 1.3-3.1 3.9-6.4 3.9S2.4 9.3 1.6 8a.9.9 0 0 1 0-.9z"/>
+            <circle cx="8" cy="7.55" r="2"/>
+          </svg>
+        </button>
         <button id="historyBtn" class="btn-icon" title="Past sessions">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.5V8l2.4 1.6"/></svg>
         </button>
@@ -178,7 +192,7 @@
         </div>
         <textarea id="cwInput" class="cw-input" rows="3" placeholder="Paste the DSA / LLD problem here — or snip it from the screen…"></textarea>
         <div class="cw-composer-foot">
-          <button id="cwSnipBtn" class="btn-sec cw-snipbtn" title="Snip the problem from your screen — stealth, invisible to the interviewer">
+          <button id="cwSnipBtn" class="btn-sec cw-snipbtn" title="Snip the problem from your screen — hidden from screen share, so the interviewer never sees it">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4.5 1v10.5A1.5 1.5 0 0 0 6 13h9M1 4.5h10.5A1.5 1.5 0 0 1 13 6v9"/></svg>
             <span>Snip screen</span>
           </button>

@@ -763,6 +763,51 @@ window.stealthAPI.onGuardrailBlocked(({ app }) => {
 });
 window.stealthAPI.onGuardrailCleared(() => guardrailLock.classList.add('hidden'));
 
+// ── Hide from screen share ──
+// The user-facing name for content protection. "Stealth" is what it is
+// internally; nobody buying this app should have to know that word. Hidden is
+// the default and the quiet state; visible is called out in amber, because
+// being visible during a real call is the state you'd want to notice.
+const shareHideBtn = document.getElementById('shareHideBtn');
+let shareHidden = true;
+
+function renderShareHide() {
+  if (!shareHideBtn) return;
+  shareHideBtn.classList.toggle('is-visible', !shareHidden);
+  shareHideBtn.title = shareHidden
+    ? 'Hidden from screen share — click to let others see Confero'
+    : 'Visible on screen share — click to hide Confero again';
+}
+// The global hotkey flips the same switch, so mirror whatever main reports.
+window.stealthAPI.onStealthStateChanged(({ enabled }) => {
+  shareHidden = enabled;
+  renderShareHide();
+});
+window.stealthAPI.getStealthState().then(({ enabled }) => {
+  shareHidden = enabled;
+  renderShareHide();
+}).catch(() => {});
+
+if (shareHideBtn) {
+  shareHideBtn.addEventListener('click', async () => {
+    shareHideBtn.disabled = true;
+    try {
+      const res = await window.stealthAPI.setStealthEnabled(!shareHidden);
+      shareHidden = res.enabled;
+      renderShareHide();
+      // Say it in plain words at the moment it changes — this is the one setting
+      // where being wrong about the state is genuinely costly.
+      if (res.blocked) showError("Can't hide Confero while proctoring software is running.");
+      else if (shareHidden) showNote('Confero is hidden — it won\'t appear when you share your screen.');
+      else showError('Confero is now VISIBLE to anyone you share your screen with.');
+    } catch (err) {
+      showError(err.message || "Couldn't change that setting.");
+    } finally {
+      shareHideBtn.disabled = false;
+    }
+  });
+}
+
 // ── Capture controls ──
 // Focus mode: while live, the stage owns the window; the ticker replaces the
 // transcript; feeds return when the session stops (or on a ticker peek).

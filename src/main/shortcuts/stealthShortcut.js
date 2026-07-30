@@ -1,25 +1,36 @@
 const { globalShortcut } = require('electron');
 const appState = require('../state/appState');
 
+// "Hide from screen share" in the UI — content protection under the hood. The
+// user-facing wording deliberately avoids "stealth": most customers aren't
+// technical, and "hidden from screen share" says exactly what the switch does.
+// Both entry points (the global hotkey and the header toggle) funnel through
+// applyScreenShareHidden, so the window, the indicator pill and the overlay UI
+// can never drift out of sync.
+function applyScreenShareHidden(overlayWin, indicatorWin, enabled) {
+  appState.stealthEnabled = enabled;
+
+  // Toggle content-protection state, not window visibility — Electron has a known
+  // bug where hide()/show() on a protected window can render as solid black in
+  // captures instead of properly excluding it.
+  overlayWin.setContentProtection(enabled);
+
+  // WDA_EXCLUDEFROMCAPTURE changes can lag behind until the window surface is
+  // touched again — nudge the compositor with a no-op bounds set so the new
+  // protection state actually applies immediately instead of on next redraw.
+  overlayWin.setBounds(overlayWin.getBounds());
+
+  console.log(`[screen-share] hidden -> ${enabled ? 'ON' : 'OFF'}`);
+
+  const payload = { enabled };
+  if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send('stealth:state-changed', payload);
+  if (indicatorWin && !indicatorWin.isDestroyed()) indicatorWin.webContents.send('stealth:state-changed', payload);
+  return enabled;
+}
+
 function registerStealthToggle(overlayWin, indicatorWin, accelerator) {
   const ok = globalShortcut.register(accelerator, () => {
-    appState.stealthEnabled = !appState.stealthEnabled;
-
-    // Toggle content-protection state, not window visibility — Electron has a known
-    // bug where hide()/show() on a protected window can render as solid black in
-    // captures instead of properly excluding it.
-    overlayWin.setContentProtection(appState.stealthEnabled);
-
-    // WDA_EXCLUDEFROMCAPTURE changes can lag behind until the window surface is
-    // touched again — nudge the compositor with a no-op bounds set so the new
-    // protection state actually applies immediately instead of on next redraw.
-    overlayWin.setBounds(overlayWin.getBounds());
-
-    console.log(`[stealth] toggled -> ${appState.stealthEnabled ? 'ON' : 'OFF'}`);
-
-    const payload = { enabled: appState.stealthEnabled };
-    overlayWin.webContents.send('stealth:state-changed', payload);
-    indicatorWin.webContents.send('stealth:state-changed', payload);
+    applyScreenShareHidden(overlayWin, indicatorWin, !appState.stealthEnabled);
   });
 
   if (!ok) {
@@ -33,4 +44,4 @@ function unregisterAll() {
   globalShortcut.unregisterAll();
 }
 
-module.exports = { registerStealthToggle, unregisterAll };
+module.exports = { registerStealthToggle, applyScreenShareHidden, unregisterAll };

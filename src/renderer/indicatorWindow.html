@@ -27,15 +27,17 @@
 <body>
   <div class="pill">
     <div class="dot" id="dot"></div>
-    <span id="label">Stealth ON</span>
+    <span id="label">Hidden from share</span>
   </div>
   <script>
     const dot = document.getElementById('dot');
     const label = document.getElementById('label');
 
+    // Plain words, not "Stealth ON/OFF" — this pill is the at-a-glance answer to
+    // "can the other side see this right now?", so it has to read that way.
     function render(enabled) {
       dot.classList.toggle('off', !enabled);
-      label.textContent = enabled ? 'Stealth ON' : 'Stealth OFF';
+      label.textContent = enabled ? 'Hidden from share' : 'Visible on share';
     }
 
     window.stealthAPI.getStealthState().then((s) => render(s.enabled));

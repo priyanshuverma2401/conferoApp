@@ -23,6 +23,11 @@ const DEFAULTS = {
   vocabularyHints: null, // free-text list of domain terms/proper nouns to bias transcription toward
   activeMode: 'tutoring', // selected preset id (from modes.js); set by onboarding persona
   modeContext: {}, // { [modeId]: text } — e.g. job title/description for Interview, topic for a talk
+  // "Hide from screen share" — content protection on the overlay. Persisted
+  // because it's a deliberate user choice, and safe to persist because the
+  // header toggle + indicator pill always show the current state, so an OFF
+  // setting can never surprise someone into being visible without knowing.
+  hideFromScreenShare: true,
 };
 
 let cache = { ...DEFAULTS };

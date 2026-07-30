@@ -91,17 +91,35 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 .header {
   -webkit-app-region: drag;
   display: flex; align-items: center; justify-content: space-between;
+  /* gap, not just space-between: once the row is exactly full there is no free
+     space left to distribute, and the Upgrade pill ends up touching the brand. */
+  gap: 10px;
   padding: 11px 12px 10px;
   border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: 8px; }
+/* Everything in the header must be able to give ground. Without min-width:0 the
+   flex children refuse to shrink below their content, so one more icon button
+   (or a long mode label like "DSA & System Design") pushes the row past the
+   window: the chip wraps onto two lines and the brand ends up underneath the
+   Upgrade pill. The icons are the fixed points; the two text runs shrink. */
+/* The product name never ellipsizes — "Confe…" reads as a broken app. The mode
+   chip is the one that gives ground, since its emoji still identifies the mode
+   and the full label is one click away in the menu. */
+.brand { display: flex; align-items: center; gap: 8px; min-width: 0; flex-shrink: 0; }
 .brand-mark {
   width: 18px; height: 18px; display: inline-flex; flex-shrink: 0;
   filter: drop-shadow(0 0 7px var(--accent-soft));
 }
 .brand-mark svg { width: 100%; height: 100%; display: block; }
-#title { font-size: 13px; font-weight: 680; letter-spacing: 0.01em; }
-.header-right { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 6px; }
+#title {
+  font-size: 13px; font-weight: 680; letter-spacing: 0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.header-right {
+  -webkit-app-region: no-drag; display: flex; align-items: center; gap: 5px;
+  min-width: 0; flex-shrink: 1;
+}
+.header-right .btn-icon, .header-right .upgrade-pill { flex-shrink: 0; }
 
 .mode-chip {
   -webkit-app-region: no-drag;
@@ -109,7 +127,11 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
   background: var(--surface-2); border: 1px solid var(--border);
   color: var(--text); font-size: 11.5px; font-weight: 560;
   padding: 4px 8px; border-radius: 20px; cursor: pointer; transition: var(--t);
+  min-width: 0; flex-shrink: 1; white-space: nowrap; max-width: 160px;
 }
+.mode-chip svg { flex-shrink: 0; }
+.mode-chip #modeEmoji { flex-shrink: 0; }
+#modeLabel { overflow: hidden; text-overflow: ellipsis; }
 .mode-chip:hover { background: var(--surface-hover); }
 
 /* Upgrade pill — only shown to free users (JS toggles .hidden) */
@@ -134,6 +156,17 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 }
 .btn-icon:hover { background: var(--surface-hover); color: var(--text); }
 .btn-icon-danger:hover { background: var(--danger-soft); color: var(--danger); }
+
+/* "Hide from screen share" toggle. Hidden is the safe, quiet state (muted eye-off);
+   visible is the one worth noticing, so it gets the amber warning treatment —
+   the point is that you can tell at a glance which one you're in. */
+.share-hide .ic-visible { display: none; }
+.share-hide.is-visible .ic-hidden { display: none; }
+.share-hide.is-visible .ic-visible { display: block; }
+.share-hide.is-visible { color: var(--amber); background: rgba(255,184,77,0.13); }
+.share-hide.is-visible:hover { color: var(--amber); background: rgba(255,184,77,0.22); }
+.share-hide:disabled { opacity: 0.35; cursor: default; }
+.share-hide:disabled:hover { background: transparent; }
 
 /* Mode menu */
 .mode-menu {
