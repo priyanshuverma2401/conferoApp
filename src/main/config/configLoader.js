@@ -75,7 +75,12 @@ function loadConfig() {
     maxUtteranceMs: Number(process.env.MAX_UTTERANCE_MS || 7000),
     minUtteranceMs: Number(process.env.MIN_UTTERANCE_MS || 400),
 
-    stealthHotkey: process.env.STEALTH_HOTKEY || 'CommandOrControl+Shift+H',
+    // Alt+H toggles "hide from screen share" both ways. Short enough to hit
+    // blind mid-call, which is the whole point of having a hotkey for it.
+    // Note it is a GLOBAL shortcut: while Confero runs, Alt+H no longer reaches
+    // other apps (it's the Home-ribbon accelerator in Office). Override with
+    // STEALTH_HOTKEY if that bites.
+    stealthHotkey: process.env.STEALTH_HOTKEY || 'Alt+H',
     suggestionIntervalMs: Number(process.env.SUGGESTION_INTERVAL_MS || 18000),
   };
 

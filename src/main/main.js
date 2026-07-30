@@ -166,7 +166,6 @@ function startMainApp() {
 
   registerIpcHandlers({ overlayWin, indicatorWin, config });
   registerSettingsHandlers({ llmClient, overlayWin });
-  registerStealthToggle(overlayWin, indicatorWin, config.stealthHotkey);
 
   // "Hide from screen share": restore the user's saved choice. CONFERO_DEV_VISIBLE
   // still wins so QA can screenshot the overlay regardless of what's persisted.
@@ -177,15 +176,27 @@ function startMainApp() {
     appState.stealthEnabled = false;
   }
 
-  // Set it from the UI toggle. Turning it back ON is refused while proctoring
+  // The ONE place a user-initiated flip is handled, for both the header button
+  // and the Alt+H hotkey. Turning it back ON is refused while proctoring
   // software is running — the guardrail owns that decision, and a client-side
   // switch must not be able to re-hide the overlay during an exam.
-  ipcMain.handle('stealth:set', async (_event, enabled) => {
+  async function setShareHiddenByUser(enabled, source) {
+    const blocked = Boolean(enabled) && Boolean(proctoringDetected);
     const want = Boolean(enabled) && !proctoringDetected;
-    applyScreenShareHidden(overlayWin, indicatorWin, want);
-    await userSettingsStore.saveUserSettings({ hideFromScreenShare: want });
-    return { enabled: want, blocked: Boolean(enabled) && Boolean(proctoringDetected) };
-  });
+    applyScreenShareHidden(overlayWin, indicatorWin, want, source);
+    // Save only what the user actually CHOSE. A guardrail refusal is forced, and
+    // persisting it would quietly wipe their preference — they'd come back after
+    // the exam still visible on every screen share without ever asking for it.
+    if (!blocked) await userSettingsStore.saveUserSettings({ hideFromScreenShare: want });
+    return { enabled: want, blocked };
+  }
+
+  ipcMain.handle('stealth:set', (_event, enabled) => setShareHiddenByUser(enabled, 'ui'));
+
+  // Alt+H (config.stealthHotkey) — same toggle, both directions, without having
+  // to find the button while someone is watching you.
+  registerStealthToggle(overlayWin, indicatorWin, config.stealthHotkey,
+    (want) => setShareHiddenByUser(want, 'hotkey'));
 
   const send = (channel, payload) => {
     if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send(channel, payload);
