@@ -335,6 +335,18 @@ body.collapsed .hb-ic-expand { display: block; }
      label onto two lines — a second row reads far better than a broken button. */
   flex-wrap: wrap; row-gap: 7px;
 }
+/* The bottom cluster (model bar + actions) is PINNED to the bottom of the window.
+   Without this, pressing Start made the whole UI jump upward: focus mode hides
+   both panes, and until the first answer arrives the answer stage is hidden too,
+   so no flex child was left to absorb the free space — every row collapsed to the
+   top and left dead space underneath. An auto top margin parks the spare space
+   above the controls instead, so the buttons stay exactly where the user last saw
+   them. When a pane IS growing (idle, peek, free-plan) there is no spare space
+   and the auto margin resolves to 0, so those layouts are untouched.
+   Two rules because the model bar is testing-only: when it's display:none its
+   margin doesn't exist, and the action bar has to take over the job. */
+.model-bar { margin-top: auto; }
+.model-bar.hidden + .action-bar { margin-top: auto; }
 /* flex:1 (not width:100%) so the Clear button sits BESIDE these, not shoved off
    the right edge of the row. */
 /* Stays on ONE line as a unit — answer/recap/stop belong together. When the row
