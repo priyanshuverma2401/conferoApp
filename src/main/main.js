@@ -8,7 +8,7 @@ const { createOnboardingWindow } = require('./windows/onboardingWindow');
 const { createSnipWindow } = require('./windows/snipWindow');
 const { startSignin } = require('./auth/signinFlow');
 const sessionStore = require('./state/sessionStore');
-const { registerStealthToggle, unregisterAll } = require('./shortcuts/stealthShortcut');
+const { registerStealthToggle, applyScreenShareHidden, unregisterAll } = require('./shortcuts/stealthShortcut');
 const { registerIpcHandlers } = require('./ipc/ipcHandlers');
 const { registerAudioHandlers } = require('./audio/audioCaptureManager');
 const { createTranscriptionEngine } = require('./transcription/transcriptionEngine');
@@ -169,6 +169,25 @@ function startMainApp() {
   registerSettingsHandlers({ llmClient, overlayWin });
   registerStealthToggle(overlayWin, indicatorWin, config.stealthHotkey);
 
+  // "Hide from screen share": restore the user's saved choice. CONFERO_DEV_VISIBLE
+  // still wins so QA can screenshot the overlay regardless of what's persisted.
+  if (!process.env.CONFERO_DEV_VISIBLE) {
+    const saved = userSettingsStore.getCachedSettings().hideFromScreenShare;
+    applyScreenShareHidden(overlayWin, indicatorWin, saved !== false);
+  } else {
+    appState.stealthEnabled = false;
+  }
+
+  // Set it from the UI toggle. Turning it back ON is refused while proctoring
+  // software is running — the guardrail owns that decision, and a client-side
+  // switch must not be able to re-hide the overlay during an exam.
+  ipcMain.handle('stealth:set', async (_event, enabled) => {
+    const want = Boolean(enabled) && !proctoringDetected;
+    applyScreenShareHidden(overlayWin, indicatorWin, want);
+    await userSettingsStore.saveUserSettings({ hideFromScreenShare: want });
+    return { enabled: want, blocked: Boolean(enabled) && Boolean(proctoringDetected) };
+  });
+
   const send = (channel, payload) => {
     if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send(channel, payload);
   };
@@ -241,14 +260,19 @@ function startMainApp() {
     const wasClear = !proctoringDetected;
     proctoringDetected = hit;
     if (hit) {
-      overlayWin.setContentProtection(false); // never allow hidden use in an exam
-      appState.stealthEnabled = false;
+      // Never allow hidden use in an exam. Goes through the shared setter so the
+      // header toggle and indicator pill both reflect it — but it is NOT
+      // persisted, because this is forced, not chosen.
+      applyScreenShareHidden(overlayWin, indicatorWin, false);
       appState.capturing = false;
       send('guardrail:blocked', { app: hit });
-      if (!indicatorWin.isDestroyed()) indicatorWin.webContents.send('stealth:state-changed', { enabled: false });
     } else if (!wasClear) {
-      // Proctoring software closed — clear the lockdown.
+      // Proctoring software closed — clear the lockdown and put the user's own
+      // "hide from screen share" choice back.
       send('guardrail:cleared', {});
+      if (!process.env.CONFERO_DEV_VISIBLE) {
+        applyScreenShareHidden(overlayWin, indicatorWin, userSettingsStore.getCachedSettings().hideFromScreenShare !== false);
+      }
     }
   }
   enforceGuardrail();

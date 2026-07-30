@@ -2,6 +2,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('stealthAPI', {
   getStealthState: () => ipcRenderer.invoke('stealth:get-state'),
+  // "Hide from screen share" toggle (content protection). Resolves with the
+  // state actually applied — it can come back false if the proctoring guardrail
+  // refused to re-hide the overlay.
+  setStealthEnabled: (enabled) => ipcRenderer.invoke('stealth:set', enabled),
   onStealthStateChanged: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('stealth:state-changed', listener);

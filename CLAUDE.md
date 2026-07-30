@@ -179,6 +179,34 @@ purpose gate → consent (interview only) → context gate; newest card measured
 offset 0 with all previous cards fully above the viewport; scrollback intact;
 code answers + Copy buttons fine in the new card.
 
+**"Hide from screen share" toggle (branch `togglestealth`):** stealth was
+hotkey-only (Ctrl+Shift+H) and undiscoverable, so there's now an eye/eye-off
+`#shareHideBtn` in the header. **Never say "stealth" in user-facing copy** — the
+customers aren't technical. The vocabulary is: "Hidden from screen share" /
+"Visible on screen share"; indicator pill "Hidden from share" / "Visible on
+share"; toggling shows a plain-words banner, and going VISIBLE is an amber icon
++ a red banner because that's the state that costs you if you're wrong about it.
+Internal names (`appState.stealthEnabled`, `stealth:*` IPC, `stealthAPI`) are
+unchanged — renaming them buys nothing and touches everything.
+Wiring: `applyScreenShareHidden(overlayWin, indicatorWin, enabled)` extracted in
+`shortcuts/stealthShortcut.js` is now the ONE place that flips content
+protection; the hotkey, the new `stealth:set` IPC and the guardrail all go
+through it, so window / pill / header button can't drift. Persisted as
+`hideFromScreenShare` in user-settings (default true), restored in
+`startMainApp` — safe to persist precisely because the header icon and pill
+always show the live state. `CONFERO_DEV_VISIBLE` still overrides. The proctoring
+guardrail refuses `stealth:set(true)` and forces it off WITHOUT persisting
+(forced ≠ chosen), then restores the user's own choice when the exam app closes.
+**Header layout had to be fixed to fit a 7th control:** flex children had no
+`min-width:0`, so the row overflowed — the mode chip wrapped to two lines and the
+brand ended up under the Upgrade pill. Now `.brand` is `flex-shrink:0` (the
+product name must never render as "Confe…"), the mode chip shrinks and
+ellipsizes instead (`max-width:160px`), and `.header` has an explicit `gap:10px`
+because `space-between` has no space left to distribute once the row is full.
+Verified via CDP at 436px width: 4 clicks alternate exactly with renderer/main
+in sync, no self-toggling over 40s idle, preference survives a real app restart
+(`[screen-share] hidden -> OFF` on relaunch), pill text fits its 150px window.
+
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
    append in `getSystemPrompt`, add a small settings field targeting the active mode.
@@ -196,7 +224,8 @@ Next up / open:
    only (multi-monitor is v2). Stealth = same `setContentProtection` as the main
    overlay; for a real call the user should spot-check it's invisible in the share.
 3. Declutter the idle window; app-hang check via the QA log.
-4. Auto/manual/stealth toggles with explainer popups.
+4. Auto/manual toggles with explainer popups. (The screen-share toggle half of
+   this is DONE — see "Hide from screen share" above.)
 5. Profile email-change via OTP to recovery email, retaining paid session (needs SMTP;
    currently console-fallback only).
 
