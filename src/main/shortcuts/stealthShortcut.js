@@ -7,7 +7,10 @@ const appState = require('../state/appState');
 // Both entry points (the global hotkey and the header toggle) funnel through
 // applyScreenShareHidden, so the window, the indicator pill and the overlay UI
 // can never drift out of sync.
-function applyScreenShareHidden(overlayWin, indicatorWin, enabled) {
+// `source` travels with the state-changed event so the renderer can tell a
+// user-initiated flip (worth an on-screen banner) from the silent one at startup
+// that just restores the saved preference.
+function applyScreenShareHidden(overlayWin, indicatorWin, enabled, source) {
   appState.stealthEnabled = enabled;
 
   // Toggle content-protection state, not window visibility — Electron has a known
@@ -22,15 +25,21 @@ function applyScreenShareHidden(overlayWin, indicatorWin, enabled) {
 
   console.log(`[screen-share] hidden -> ${enabled ? 'ON' : 'OFF'}`);
 
-  const payload = { enabled };
+  const payload = { enabled, source: source || 'system' };
   if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send('stealth:state-changed', payload);
   if (indicatorWin && !indicatorWin.isDestroyed()) indicatorWin.webContents.send('stealth:state-changed', payload);
   return enabled;
 }
 
-function registerStealthToggle(overlayWin, indicatorWin, accelerator) {
+// `onToggle(want)` lets main.js run the hotkey through the SAME path as the
+// header button — proctoring guardrail, then persist. Without it the hotkey was
+// a second, weaker door: it could re-hide the overlay during a proctored exam,
+// and its flip was forgotten on the next launch.
+function registerStealthToggle(overlayWin, indicatorWin, accelerator, onToggle) {
   const ok = globalShortcut.register(accelerator, () => {
-    applyScreenShareHidden(overlayWin, indicatorWin, !appState.stealthEnabled);
+    const want = !appState.stealthEnabled;
+    if (typeof onToggle === 'function') onToggle(want);
+    else applyScreenShareHidden(overlayWin, indicatorWin, want, 'hotkey');
   });
 
   if (!ok) {

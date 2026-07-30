@@ -607,7 +607,13 @@ const needsConsent = () => activeModeId === 'interview' && !consentedThisRun;
 })();
 
 // ── Init ──
-window.stealthAPI.getConfig().then((cfg) => { titleEl.textContent = cfg.productName; });
+window.stealthAPI.getConfig().then((cfg) => {
+  titleEl.textContent = cfg.productName;
+  if (cfg.stealthHotkey) {
+    shareHotkeyLabel = String(cfg.stealthHotkey).replace('CommandOrControl', 'Ctrl');
+    renderShareHide();
+  }
+});
 // The plan drives layout, not just copy: the answer stage is Pro-only, so focus
 // mode needs to know which pane is the primary object. Mirror it onto <div id=app>.
 function applyPlan(p) {
@@ -921,17 +927,31 @@ window.stealthAPI.onGuardrailCleared(() => guardrailLock.classList.add('hidden')
 const shareHideBtn = document.getElementById('shareHideBtn');
 let shareHidden = true;
 
+// Read from config so an overridden STEALTH_HOTKEY doesn't leave the tooltip
+// advertising a key that does nothing.
+let shareHotkeyLabel = 'Alt+H';
 function renderShareHide() {
   if (!shareHideBtn) return;
   shareHideBtn.classList.toggle('is-visible', !shareHidden);
-  shareHideBtn.title = shareHidden
+  shareHideBtn.title = (shareHidden
     ? 'Hidden from screen share — click to let others see Confero'
-    : 'Visible on screen share — click to hide Confero again';
+    : 'Visible on screen share — click to hide Confero again')
+    + ` (${shareHotkeyLabel})`;
 }
-// The global hotkey flips the same switch, so mirror whatever main reports.
-window.stealthAPI.onStealthStateChanged(({ enabled }) => {
+// Say it in plain words at the moment it changes — this is the one setting where
+// being wrong about the state is genuinely costly.
+function announceShareState() {
+  if (shareHidden) showNote("Confero is hidden — it won't appear when you share your screen.");
+  else showError('Confero is now VISIBLE to anyone you share your screen with.');
+}
+// The Alt+H hotkey flips the same switch, so mirror whatever main reports — and
+// banner it too: pressing a hotkey blind, you need the confirmation MORE than
+// when you clicked the button and watched the icon change. `source` filters out
+// the silent restore at startup, which would otherwise banner on every launch.
+window.stealthAPI.onStealthStateChanged(({ enabled, source }) => {
   shareHidden = enabled;
   renderShareHide();
+  if (source === 'hotkey') announceShareState();
 });
 window.stealthAPI.getStealthState().then(({ enabled }) => {
   shareHidden = enabled;
@@ -945,11 +965,8 @@ if (shareHideBtn) {
       const res = await window.stealthAPI.setStealthEnabled(!shareHidden);
       shareHidden = res.enabled;
       renderShareHide();
-      // Say it in plain words at the moment it changes — this is the one setting
-      // where being wrong about the state is genuinely costly.
       if (res.blocked) showError("Can't hide Confero while proctoring software is running.");
-      else if (shareHidden) showNote('Confero is hidden — it won\'t appear when you share your screen.');
-      else showError('Confero is now VISIBLE to anyone you share your screen with.');
+      else announceShareState();
     } catch (err) {
       showError(err.message || "Couldn't change that setting.");
     } finally {
