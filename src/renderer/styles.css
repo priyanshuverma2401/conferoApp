@@ -230,6 +230,18 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
   padding: 10px 12px; border-top: 1px solid var(--border);
   background: rgba(255,255,255,0.02);
 }
+/* The bottom cluster (model bar + actions) is PINNED to the bottom of the window.
+   Without this, pressing Start made the whole UI jump upward: focus mode hides
+   both panes, and until the first answer arrives the answer stage is hidden too,
+   so no flex child was left to absorb the free space — every row collapsed to the
+   top and left dead space underneath. An auto top margin parks the spare space
+   above the controls instead, so the buttons stay exactly where the user last saw
+   them. When a pane IS growing (idle, peek, free-plan) there is no spare space
+   and the auto margin resolves to 0, so those layouts are untouched.
+   Two rules because the model bar is testing-only: when it's display:none its
+   margin doesn't exist, and the action bar has to take over the job. */
+.model-bar { margin-top: auto; }
+.model-bar.hidden + .action-bar { margin-top: auto; }
 /* flex:1 (not width:100%) so the Clear button sits BESIDE these, not shoved off
    the right edge of the row. */
 .active-actions { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; }
