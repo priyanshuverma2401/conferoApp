@@ -12,6 +12,7 @@ const titleEl = document.getElementById('title');
 const startBtn = document.getElementById('startBtn');
 const activeActions = document.getElementById('activeActions');
 const helpNowBtn = document.getElementById('helpNowBtn');
+const quickAnswerRow = document.getElementById('quickAnswerRow');
 const recapBtn = document.getElementById('recapBtn');
 const stopBtn = document.getElementById('stopBtn');
 const clearBtn = document.getElementById('clearBtn');
@@ -43,6 +44,7 @@ const stageModel = document.getElementById('stageModel');
 const stageNote = document.getElementById('stageNote');
 const stageAnswer = document.getElementById('stageAnswer');
 const stageUpnext = document.getElementById('stageUpnext');
+const stageUpBtn = document.getElementById('stageUpBtn');
 const stageDiff = document.getElementById('stageDiff');
 const stageUpsellHint = document.getElementById('stageUpsellHint');
 const stageMeta = document.getElementById('stageMeta');
@@ -329,6 +331,8 @@ function stageReset() {
   stageAnswer.classList.remove('thinking');
   stageUpnext.classList.add('hidden');
   stageUpnext.innerHTML = '';
+  stageUpBtn.classList.add('hidden');
+  stageUpBtn.classList.remove('open');
   stageDiff.classList.add('hidden');
   stageUpsellHint.classList.add('hidden');
   stageMeta.textContent = '';
@@ -460,6 +464,34 @@ function renderAnswer({ question, text, ms, adaptiveUpsell, provider, detail, fo
 }
 window.stealthAPI.onAnswerReady(renderAnswer);
 
+// Up next (the likely follow-up question) is now PARKED BEHIND A BUTTON instead
+// of printing itself under the answer. Unasked-for, it was a second block of text
+// arriving next to the words the candidate is trying to read off — guessing at a
+// question that may never be asked. As a button it costs nothing until wanted.
+function mountUpNext(card, html) {
+  const foot = card.querySelector('.qa-foot');
+  if (!foot) return;
+  let panel = card.querySelector('.upnext-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.className = 'stage-upnext upnext-panel hidden';
+    card.appendChild(panel);
+  }
+  panel.innerHTML = html;
+  if (foot.querySelector('.card-upnext')) return; // content refreshed, button already there
+  const btn = document.createElement('button');
+  btn.className = 'card-upnext';
+  btn.textContent = '⤳ Up next';
+  btn.addEventListener('click', () => {
+    const open = panel.classList.toggle('hidden') === false;
+    btn.classList.toggle('open', open);
+  });
+  // Directly after "Say it differently" — to its RIGHT — and before the meta,
+  // which floats itself to the far end of the row with margin-left:auto.
+  const diff = foot.querySelector('.card-diff');
+  foot.insertBefore(btn, diff ? diff.nextSibling : foot.firstChild);
+}
+
 window.stealthAPI.onAnswerUpNext(({ text }) => {
   const parsed = parseUpNext(text);
   const inner = parsed
@@ -467,12 +499,11 @@ window.stealthAPI.onAnswerUpNext(({ text }) => {
     : `<span class="un-tag">Up next</span>${escapeHtml(text)}`;
   if (plan === 'pro') {
     stageUpnext.innerHTML = inner;
-    stageUpnext.classList.remove('hidden');
+    stageUpnext.classList.add('hidden'); // stays shut until the button is pressed
+    stageUpBtn.classList.remove('hidden');
+    stageUpBtn.classList.remove('open');
   } else if (currentFeedCard) {
-    const div = document.createElement('div');
-    div.className = 'stage-upnext';
-    div.innerHTML = inner;
-    currentFeedCard.appendChild(div);
+    mountUpNext(currentFeedCard, inner);
   }
 });
 
@@ -487,6 +518,10 @@ async function requestRephrase(sourceText, renderTake2) {
   renderTake2(res.text);
   return res.text;
 }
+stageUpBtn.addEventListener('click', () => {
+  const open = stageUpnext.classList.toggle('hidden') === false;
+  stageUpBtn.classList.toggle('open', open);
+});
 stageDiff.addEventListener('click', async () => {
   if (!lastAnswerSubstance) return;
   stageDiff.disabled = true;
@@ -983,10 +1018,39 @@ if (shareHideBtn) {
 // ── Capture controls ──
 // Focus mode: while live, the stage owns the window; the ticker replaces the
 // transcript; feeds return when the session stops (or on a ticker peek).
+
+// ── Floating "Answer now" pill ──
+// PERMANENT for the whole live session — it is not tied to whether an answer is
+// currently on screen. Deliberate: its job is "answer the thing they just said",
+// which is just as valid straight after an answer (they asked a follow-up, the
+// question wasn't detected, the last answer missed the point). A button that
+// comes and goes is one you have to look for, and mid-call there is no time to
+// look. Shown on Start, hidden on Stop, nothing in between.
+function measureBottomCluster() {
+  // The pill hovers above whatever the topmost bottom control is. Measured, not
+  // hardcoded: the model bar only exists in test builds, and the action bar wraps
+  // to two rows in code modes.
+  const modelBar = document.getElementById('modelBar');
+  const first = modelBar && !modelBar.classList.contains('hidden')
+    ? modelBar
+    : document.querySelector('.action-bar');
+  if (!first) return;
+  const px = Math.round(appEl.getBoundingClientRect().bottom - first.getBoundingClientRect().top);
+  appEl.style.setProperty('--bottom-cluster', `${px}px`);
+}
+function setQuickAnswerVisible(show) {
+  if (show) measureBottomCluster();
+  quickAnswerRow.classList.toggle('hidden', !show);
+}
+window.addEventListener('resize', () => {
+  if (!quickAnswerRow.classList.contains('hidden')) measureBottomCluster();
+});
+
 function setCapturingUi(capturing) {
   isCapturing = capturing;
   startBtn.style.display = capturing ? 'none' : '';
   activeActions.classList.toggle('hidden', !capturing);
+  setQuickAnswerVisible(capturing); // stays up for the whole live session
   appEl.classList.toggle('focus', capturing);
   if (!capturing) appEl.classList.remove('peek');
   updateClearVisibility();

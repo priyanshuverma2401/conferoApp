@@ -34,7 +34,19 @@
   --stage-top-bg: linear-gradient(180deg, rgba(25,28,34,0.98), rgba(25,28,34,0.9));
   --stage-bg: rgba(93,169,233,0.045);
   --answer-color: var(--text);
-  --answer-font: inherit;
+  /* ONE reading font for everything the candidate actually reads — the
+     interviewer's question, the answer, take-2, up-next, transcript. Tiempos is
+     the intent (it's a reading serif: tall x-height, open counters, holds up at
+     small sizes on a dark panel); it's a licensed font we can't bundle, so it's
+     named first and used automatically if the machine has it, with Georgia — the
+     closest thing shipped on every Windows/macOS box — carrying the fallback.
+     To make it exact later: drop the woff2 in assets/ and add an @font-face
+     declaring the family name "Tiempos Text"; nothing else here changes.
+     UI chrome (buttons, chips, labels) deliberately stays on the system sans:
+     serif body + sans labels is what makes the body text read as prose. */
+  --reading-font: "Tiempos Text", "Tiempos Headline", Tiempos, Georgia,
+    "Iowan Old Style", "Source Serif Pro", "Times New Roman", serif;
+  --answer-font: var(--reading-font);
   --select-bg: #1b1f26;
   --scrollbar: rgba(255,255,255,0.14);
   --scrollbar-hover: rgba(255,255,255,0.22);
@@ -343,10 +355,14 @@ body.collapsed .hb-ic-expand { display: block; }
    above the controls instead, so the buttons stay exactly where the user last saw
    them. When a pane IS growing (idle, peek, free-plan) there is no spare space
    and the auto margin resolves to 0, so those layouts are untouched.
-   Two rules because the model bar is testing-only: when it's display:none its
-   margin doesn't exist, and the action bar has to take over the job. */
+   Two rules because the model bar is testing-only: when it's display:none it has
+   no margin to give and the action bar takes over. `~` not `+` — the Answer-now
+   row sits between them in the DOM but is position:absolute, so it is not a flex
+   item at all and an auto margin on IT would do nothing. (That was the trap this
+   merge exposed: a `+ .quick-row` chain looks right and silently leaves the bar
+   unpinned in production builds, where the model bar is hidden.) */
 .model-bar { margin-top: auto; }
-.model-bar.hidden + .action-bar { margin-top: auto; }
+.model-bar.hidden ~ .action-bar { margin-top: auto; }
 /* flex:1 (not width:100%) so the Clear button sits BESIDE these, not shoved off
    the right edge of the row. */
 /* Stays on ONE line as a unit — answer/recap/stop belong together. When the row
@@ -357,6 +373,10 @@ body.collapsed .hb-ic-expand { display: block; }
    it. Held at content width, the row wraps the trailing buttons instead. */
 .active-actions { display: flex; align-items: center; gap: 7px; flex: 1; min-width: max-content; }
 .active-actions.hidden { display: none; }
+/* Stop inherits the wide primary slot Answer now vacated; Recap stays a compact
+   secondary beside it. */
+.active-actions #stopBtn { flex: 1.6; }
+.active-actions #recapBtn { flex: 1; }
 
 .btn-cta {
   -webkit-app-region: no-drag;
@@ -369,7 +389,72 @@ body.collapsed .hb-ic-expand { display: block; }
 .btn-cta:hover { background: #74b6ee; transform: translateY(-1px); }
 .btn-cta:active { transform: translateY(0) scale(0.98); }
 .btn-cta:disabled { opacity: 0.6; cursor: default; transform: none; filter: none; }
-.btn-help { flex: 1.6; box-shadow: 0 2px 12px rgba(93,169,233,0.22); }
+/* "Answer now" — its own centred row directly above the controls, the way a
+   chat app floats a single suggested action above its composer. Out of the bar
+   it no longer fights Recap/Stop for width, and it sits nearer the answer it
+   produces. A compact pill on purpose: it's reached for constantly, so it should
+   be easy to hit but not shout over the whole window. */
+/* Floats OVER the reading surface rather than taking a row of its own, so the
+   answer keeps the full height of the window. --bottom-cluster is the height of
+   the controls below it (action bar, plus the testing-only model bar when it's
+   showing), set by the renderer — CSS can't measure a sibling, and hardcoding it
+   would put the pill on top of the model bar in test builds. */
+.quick-row {
+  position: absolute; z-index: 6;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(var(--bottom-cluster, 60px) + 16px);
+  display: flex; justify-content: center;
+  /* Its own keyframes, not the shared `fade`: that one animates to
+     `transform: none`, and with fill-mode both it then WINS over the
+     translateX(-50%) above — which quietly parks the pill off-centre. */
+  animation: quick-in 180ms ease both;
+}
+@keyframes quick-in {
+  from { opacity: 0; transform: translate(-50%, 5px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+/* Now that the pill is permanent it permanently covers a strip of the scrolling
+   surface, so give the scroll room to clear it — otherwise the last line of a
+   long answer parks under the pill and can't be scrolled out from behind it. */
+.app.focus #suggestions-pane { padding-bottom: 52px; }
+.app.focus #answerStage .stage-answer { padding-bottom: 44px; }
+/* Animated border: one conic gradient painted into the BORDER box while a flat
+   fill covers the padding box, so the sweep is visible only in the 1.5px rim. Two
+   background layers rather than a pseudo-element behind the button — a negative
+   z-index child paints above its parent's background, not below it, so that
+   version showed the gradient straight through the face.
+   Worth the motion: answers are manual now, so nothing on screen moves while the
+   app waits, and a completely static button reads as a disabled one. */
+@property --qa-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+.quick-answer {
+  -webkit-app-region: no-drag;
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 15px; border-radius: 999px;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--qa-face), var(--qa-face)) padding-box,
+    conic-gradient(from var(--qa-angle),
+      rgba(255,255,255,0.10) 0deg, var(--accent) 55deg,
+      var(--accent-2) 95deg, rgba(255,255,255,0.10) 165deg,
+      rgba(255,255,255,0.10) 360deg) border-box;
+  /* Graphite, matching this branch's shell — it arrived from formatinganswer as
+     the old purple-tinted #221d33, which is off-palette here. */
+  --qa-face: #1e232b;
+  color: var(--text);
+  font-size: 12px; font-weight: 620; white-space: nowrap; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  animation: qa-rotate 3.2s linear infinite;
+}
+@keyframes qa-rotate { to { --qa-angle: 360deg; } }
+.quick-answer:hover { --qa-face: #272d37; }
+.quick-answer:active { transform: scale(0.97); }
+/* Thinking: the ring speeds up rather than stopping, so the wait stays visible. */
+.quick-answer:disabled { cursor: default; transform: none; animation-duration: 0.9s; }
+/* The one spot of colour in the label, so the pill reads as the assist action. */
+.quick-answer svg { color: var(--accent); flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .quick-answer { animation: none; }
+}
 
 .btn-sec {
   -webkit-app-region: no-drag;
@@ -551,7 +636,9 @@ body.collapsed .hb-ic-expand { display: block; }
 .ans-code {
   background: rgba(0,0,0,0.28); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 12px 12px 10px; overflow-x: auto;
-  font-family: var(--answer-font, "Consolas", "SF Mono", "Menlo", monospace);
+  /* Explicitly mono, NOT var(--answer-font): that variable is the reading serif
+     now, and code in a serif is unreadable (and misaligned). */
+  font-family: "Consolas", "SF Mono", "Menlo", monospace;
   font-size: 12.5px; line-height: 1.5; color: var(--answer-color, var(--text));
 }
 .ans-code code { font-family: "Consolas", "SF Mono", "Menlo", monospace; white-space: pre; }
@@ -568,6 +655,18 @@ body.collapsed .hb-ic-expand { display: block; }
   transition: var(--t);
 }
 .code-copy:hover { background: var(--surface-hover); color: var(--text); }
+/* ── The reading face ──
+   Everything the candidate actually READS shares one family: the interviewer's
+   question, the answer, take-2, up-next, the transcript, the DSA scratchpad.
+   Kept as one rule so "consistent everywhere" survives the next new surface.
+   Nested <b> is listed explicitly because the global `*` rule sets the UI sans on
+   every element directly, so a child would otherwise fall back to it — which is
+   also exactly what keeps the small caps tags (.un-tag, .t2-tag, .ab-label) sans
+   without any override here. */
+.qa-q, .stage-q, .line, .ans-scratch,
+.qa-card .take2, .stage-upnext, .stage-upnext b,
+.upnext-panel, .upnext-panel b { font-family: var(--reading-font); }
+
 .ans-block {
   display: grid; grid-template-columns: 14px 1fr; gap: 8px;
   animation: fade 200ms ease both;
@@ -676,6 +775,19 @@ body.collapsed .hb-ic-expand { display: block; }
   font-size: 10.5px; font-weight: 600; padding: 3px 9px; border-radius: 20px; cursor: pointer; transition: var(--t);
 }
 .qa-card .card-diff:hover { color: var(--text); background: var(--surface-2); }
+/* Same shape as "Say it differently" — they're peers in the same row, and the
+   only difference should be which one you want. Amber when open, matching the
+   Up-next block it reveals. */
+.qa-card .card-upnext {
+  -webkit-app-region: no-drag;
+  background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+  font-size: 10.5px; font-weight: 600; padding: 3px 9px; border-radius: 20px; cursor: pointer; transition: var(--t);
+}
+.qa-card .card-upnext:hover { color: var(--text); background: var(--surface-2); }
+.qa-card .card-upnext.open { color: var(--amber); border-color: rgba(255,184,77,0.4); background: rgba(255,184,77,0.10); }
+.qa-card .upnext-panel { margin-top: 9px; }
+/* Stage twin of the same toggle. */
+.stage-diff.open { color: var(--amber); border-color: rgba(255,184,77,0.4); background: rgba(255,184,77,0.10); }
 .qa-card .take2 { margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--border); }
 .qa-card .take2 .t2-tag { font-size: 9px; font-weight: 750; letter-spacing: 0.06em; color: #9fcdf2; text-transform: uppercase; display: block; margin-bottom: 2px; }
 
