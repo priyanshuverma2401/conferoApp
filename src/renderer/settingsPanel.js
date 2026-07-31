@@ -45,6 +45,51 @@ if (themePicker) {
   applyTheme(currentTheme()); // sync active swatch to whatever the inline script set
 }
 
+// ── Reading-font switcher ───────────────────────────────────────────────────
+// Same shape as the theme switcher above: pure presentation, localStorage only,
+// applied pre-paint by the inline script in index.html so there's no flash of the
+// previous face. It overrides --reading-font, which is the ONE variable every
+// reading surface (question, answer, take-2, up-next, transcript) draws from —
+// so a choice here reaches all of them and nothing else.
+// The SF entries lead with -apple-system/BlinkMacSystemFont, which is how you ask
+// for San Francisco by name — Apple doesn't ship it as an installable family and
+// it can't be bundled. On a Mac all three resolve to SF (Text and Display are its
+// optical sizes); on Windows they fall through to Segoe UI, which is that
+// platform's equivalent UI face rather than a lookalike.
+const FONTS = {
+  default: '', // clears the override — the stylesheet's San Francisco stack
+  sfprotext: '"SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  sfprodisplay: '"SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  serif: '"Tiempos Text", "Tiempos Headline", Tiempos, Georgia, "Iowan Old Style", "Source Serif Pro", "Times New Roman", serif',
+  consolas: 'Consolas, "Lucida Console", monospace',
+  courier: '"Courier New", Courier, monospace',
+  mono: 'monospace',
+};
+// San Francisco IS the default now, so an older saved 'sanfrancisco' means the
+// same thing — map it over rather than leaving the dropdown showing blank.
+const FONT_ALIASES = { sanfrancisco: 'default' };
+const fontPicker = document.getElementById('fontPicker');
+function applyReadingFont(name) {
+  const asked = FONT_ALIASES[name] || name;
+  const key = Object.prototype.hasOwnProperty.call(FONTS, asked) ? asked : 'default';
+  const stack = FONTS[key];
+  if (stack) document.documentElement.style.setProperty('--reading-font', stack);
+  else document.documentElement.style.removeProperty('--reading-font');
+  try { localStorage.setItem('confero-font', key); } catch (e) { /* private mode */ }
+  if (fontPicker && fontPicker.value !== key) fontPicker.value = key;
+}
+if (fontPicker) {
+  // Each row previews itself — "Consolas" and "Courier New" are indistinguishable
+  // as plain labels, and the SF entries only differ by their optical size.
+  Array.from(fontPicker.options).forEach((o) => {
+    if (FONTS[o.value]) o.style.fontFamily = FONTS[o.value];
+  });
+  fontPicker.addEventListener('change', () => applyReadingFont(fontPicker.value));
+  let saved = 'default';
+  try { saved = localStorage.getItem('confero-font') || 'default'; } catch (e) { /* private mode */ }
+  applyReadingFont(saved);
+}
+
 function renderDocumentInfo(documentContext) {
   if (documentContext) {
     documentFileName.textContent = documentContext.fileName;

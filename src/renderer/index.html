@@ -5,7 +5,9 @@
   <title>Confero</title>
   <!-- Apply the saved theme before the body paints, to avoid a flash of the
        default theme on launch. -->
-  <script>try{var t=localStorage.getItem('confero-theme');if(t&&t!=='default')document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+  <script>try{var t=localStorage.getItem('confero-theme');if(t&&t!=='default')document.documentElement.setAttribute('data-theme',t);
+  var f=localStorage.getItem('confero-font'),F={sfprotext:'"SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',sfprodisplay:'"SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',serif:'"Tiempos Text", "Tiempos Headline", Tiempos, Georgia, "Iowan Old Style", "Source Serif Pro", "Times New Roman", serif',consolas:'Consolas, "Lucida Console", monospace',courier:'"Courier New", Courier, monospace',mono:'monospace'};
+  if(f&&F[f])document.documentElement.style.setProperty('--reading-font',F[f]);}catch(e){}</script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -421,6 +423,20 @@
           <button class="theme-swatch" data-theme="default" title="Default"><span class="ts-dot" style="background:linear-gradient(135deg,#5da9e9,#3f8ecb)"></span>Default</button>
           <button class="theme-swatch" data-theme="matrix" title="Matrix"><span class="ts-dot" style="background:linear-gradient(135deg,#001a0d,#39ff14)"></span>Matrix</button>
         </div>
+
+        <!-- Font for the READING surfaces (question, answer, transcript). Each
+             option renders in its own face in the open list, so the choice is
+             visible before it's made. "Default" keeps the pick reversible. -->
+        <label class="settings-label">Answer font</label>
+        <select id="fontPicker" class="settings-select">
+          <option value="default">San Francisco (default)</option>
+          <option value="sfprotext">SF Pro Text</option>
+          <option value="sfprodisplay">SF Pro Display</option>
+          <option value="serif">Serif — Tiempos / Georgia</option>
+          <option value="consolas">Consolas</option>
+          <option value="courier">Courier New</option>
+          <option value="mono">Monospace</option>
+        </select>
 
         <label class="settings-label">Answer display</label>
         <div class="answer-display-ctl">
