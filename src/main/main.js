@@ -315,11 +315,23 @@ function startMainApp() {
   // wait a short settle window — more of their speech within it merges into the
   // question and re-arms the timer — and if they keep talking right after we
   // fired, abort and re-answer the merged whole.
+  // Answers are MANUAL: detecting a question no longer fires one. The candidate
+  // presses "Answer now" (or the hotkey) when they actually want it. Auto-firing
+  // burned quota on rhetorical asides and small talk, and put an answer on screen
+  // at moments the candidate was mid-sentence and couldn't use it. Detection all
+  // still runs — the settle window below still merges a split question — it just
+  // parks the result instead of spending a model call on it.
+  const MANUAL_ANSWERS_ONLY = true;
   const QUESTION_SETTLE_MS = 1300;
   // Generous on purpose: their part-2 utterance must survive ~2s of speech plus
   // ~2-3s of transcription before it can arrive (measured live — 5s missed it).
   const CONTINUATION_WINDOW_MS = 10000;
-  let pendingQuestion = null; // { text, timer }
+  let pendingQuestion = null; // { text, timer } — still merging further speech
+  // The finished question, waiting for the candidate to ask for an answer. Kept
+  // separate from pendingQuestion so further interviewer speech starts a NEW
+  // question instead of being glued onto this one forever (with nothing firing,
+  // an always-open pendingQuestion would grow into the whole interview).
+  let settledQuestion = null; // { text, at }
   let lastFired = null; // { text, at }
 
   // When testing on speakers (or echoey calls), the mic hears the same words
@@ -359,6 +371,12 @@ function startMainApp() {
       const q = pendingQuestion.text;
       const waitedMs = Date.now() - (pendingQuestion.queuedAt || Date.now());
       pendingQuestion = null;
+      if (MANUAL_ANSWERS_ONLY) {
+        // Question is complete — park it and wait. No model call until asked.
+        settledQuestion = { text: q, at: Date.now() };
+        qaLog.log('question_settled', { question: qaLog.preview(q), settledMs: waitedMs, manual: true });
+        return;
+      }
       lastFired = { text: q, at: Date.now() };
       qaLog.log('question_fired', { question: qaLog.preview(q), settledMs: waitedMs });
       runAnswerPipeline(q);
@@ -504,11 +522,12 @@ function startMainApp() {
   // the settle window (they know the speaker is done), else answer the latest
   // thing THEY said, falling back to the newest line in solo practice.
   function triggerHelpNow() {
-    qaLog.log('help_now', { hasPending: !!pendingQuestion });
+    qaLog.log('help_now', { hasPending: !!pendingQuestion, hasSettled: !!settledQuestion });
     if (pendingQuestion) {
       clearTimeout(pendingQuestion.timer);
       const q = pendingQuestion.text;
       pendingQuestion = null;
+      settledQuestion = null;
       lastFired = { text: q, at: Date.now() };
       runAnswerPipeline(q);
       return;
@@ -519,7 +538,19 @@ function startMainApp() {
       return;
     }
     const lastThem = [...lines].reverse().find((t) => t.source === 'system');
+    // Prefer the settled question — it's the MERGED whole ("What's your experience
+    // with…" + "…with Kafka specifically?"), where the last transcript line is
+    // only the tail of it. Unless the interviewer has since moved on, in which
+    // case the newest thing they said is the thing to answer.
+    if (settledQuestion && (!lastThem || lastThem.timestamp <= settledQuestion.at)) {
+      const q = settledQuestion.text;
+      settledQuestion = null;
+      lastFired = { text: q, at: Date.now() };
+      runAnswerPipeline(q);
+      return;
+    }
     const target = lastThem || lines[lines.length - 1];
+    settledQuestion = null;
     lastFired = { text: target.text, at: Date.now() };
     runAnswerPipeline(target.text);
   }
@@ -535,6 +566,7 @@ function startMainApp() {
       appState.sawSystemAudio = false;
       appState.sessionAnswers = [];
       if (pendingQuestion) { clearTimeout(pendingQuestion.timer); pendingQuestion = null; }
+      settledQuestion = null;
       lastFired = null;
       const s = userSettingsStore.getCachedSettings();
       qaLog.log('session_start', { mode: s.activeMode, forcedProvider: forcedProvider || 'auto', plan: appState.plan });
