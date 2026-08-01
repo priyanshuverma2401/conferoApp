@@ -490,7 +490,7 @@ body.collapsed .hb-ic-expand { display: block; }
   padding: 10px 0 7px;
   background: var(--stage-top-bg);
 }
-.stage-q { flex: 1; font-size: 11px; color: var(--question-color, #7cc4ff); font-weight: 620; line-height: 1.4; }
+.stage-q { flex: 1; font-size: 12px; color: var(--question-color, #7cc4ff); font-weight: 620; line-height: 1.4; }
 .stage-q:empty { display: none; }
 .stage-q.listening::after { content: ' …'; color: var(--text-muted); }
 .stage-diff {
@@ -679,7 +679,7 @@ body.collapsed .hb-ic-expand { display: block; }
    separated by three things at once — colour, size and a deliberate gap — rather
    than the old near-identical bold-on-bold, which ran the two together. */
 .qa-q {
-  font-size: calc(var(--answer-size, 15px) - 3px); font-weight: 620;
+  font-size: calc(var(--answer-size, 15px) - 2px); font-weight: 620;
   line-height: 1.45; color: var(--question-color, #7cc4ff);
   margin-bottom: 14px;
 }
@@ -688,7 +688,7 @@ body.collapsed .hb-ic-expand { display: block; }
 .qa-typed {
   display: inline-block; vertical-align: middle; margin-right: 7px; padding: 1px 6px;
   border-radius: 999px; background: var(--accent-soft); color: var(--accent);
-  font-size: 9px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
 }
 .qa-note { font-size: 10.5px; color: var(--text-muted); margin: -6px 0 12px; }
 .qa-card .ans-list { display: flex; flex-direction: column; gap: 11px; }
@@ -928,12 +928,31 @@ body.collapsed .hb-ic-expand { display: block; }
 .ticker:hover { background: var(--surface-2); color: var(--text); }
 .app.focus .ticker { display: flex; }
 .ticker.hidden { display: none !important; }
-.ticker-dot {
-  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
-  background: var(--success); box-shadow: 0 0 6px rgba(53,214,138,0.8);
-  animation: pulse 1.6s ease-in-out infinite;
+/* Listening indicator: a four-bar level meter. Bars at different phases read as
+   continuous LIVE INPUT — a single blinking dot reads as a warning light, and it
+   can't say whether the mic is actually working. The ticker only exists in focus
+   mode, so it's on screen exactly when capture is running. */
+.ticker-bars {
+  display: flex; align-items: center; gap: 2px;
+  height: 11px; flex-shrink: 0;
 }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.ticker-bars i {
+  display: block; width: 2px; height: 100%; border-radius: 1px;
+  background: var(--accent);
+  animation: vu 1.05s ease-in-out infinite;
+}
+.ticker-bars i:nth-child(1) { animation-delay: -0.90s; }
+.ticker-bars i:nth-child(2) { animation-delay: -0.55s; }
+.ticker-bars i:nth-child(3) { animation-delay: -0.20s; }
+.ticker-bars i:nth-child(4) { animation-delay: -0.72s; }
+@keyframes vu {
+  0%, 100% { transform: scaleY(0.26); opacity: 0.5; }
+  50%      { transform: scaleY(1);    opacity: 1; }
+}
+/* Motion sickness / focus: hold the bars still rather than hiding the state. */
+@media (prefers-reduced-motion: reduce) {
+  .ticker-bars i { animation: none; transform: scaleY(0.62); opacity: 0.85; }
+}
 
 /* Stage "hearing the question" state */
 .stage-q.listening::after { content: ' …'; color: var(--text-muted); }

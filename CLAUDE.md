@@ -297,6 +297,16 @@ persists position, so every launch re-centres. Verified with a Win32
 y=12 (centred; the 436 reported width includes the invisible DWM border), and the
 "Hidden from share" indicator still sits clear at top-right.
 
+**Listening indicator + question legibility:** the ticker's green blinking dot is
+gone — `.ticker-bars` is a four-bar level meter (`@keyframes vu`, each bar on a
+negative `animation-delay` so they're out of phase), in `--accent` blue to match
+the repainted shell. A blink reads as a warning light; bars that keep moving read
+as live input. `prefers-reduced-motion` holds them still rather than hiding the
+state. The ticker only exists in focus mode, so it's on screen exactly while
+capture runs. Question text went up a point everywhere it appears — `.stage-q`
+11→12px and `.qa-q` `--answer-size − 3px` → `− 2px` (so it still tracks the user's
+font-size setting) — as did the `.qa-typed` "YOU ASKED" chip, 9→10px.
+
 **Floating bar (logo · Collapse/Expand · End):** a small always-visible pill above the
 panel (`#hoverBar` in index.html, styled `.hover-bar` in styles.css) carrying the
 three controls that must survive every state — the Confero mark, a
