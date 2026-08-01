@@ -765,51 +765,17 @@ html, body { width: 100%; height: 100%; background: transparent; color: var(--te
 .sv-tools button:hover { background: var(--surface-hover); }
 .sv-tools.hidden { display: none; }
 
-/* ── End-of-session report (transcript + summary, both copyable) ── */
+/* The end-of-session report itself now lives in its own window (report.css) —
+   what stays here is the End button, and the summary blocks the past-sessions
+   viewer renders inline. */
 .btn-end:hover { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
-.end-card { max-width: 420px; max-height: 88%; overflow: hidden; }
-.end-head { display: flex; align-items: center; justify-content: space-between; }
-.end-meta { font-size: 11px; color: var(--text-muted); margin-top: -6px; }
-.end-tabs { display: flex; gap: 6px; }
-.end-tab {
-  -webkit-app-region: no-drag; flex: 1; height: 30px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  color: var(--text-muted); font-size: 12px; font-weight: 600; font-family: inherit;
-  cursor: pointer; transition: var(--t);
-}
-.end-tab:hover { background: var(--surface-2); color: var(--text); }
-.end-tab.active { background: var(--surface-2); color: var(--text); border-color: rgba(124,92,255,0.45); }
-.end-body {
-  flex: 1; min-height: 140px; overflow-y: auto;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 10px 11px; font-size: 12px; line-height: 1.6;
-  white-space: pre-wrap; word-break: break-word;
-}
-.end-body.is-transcript { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.55; }
-.end-body .eb-h {
+.session-viewer .eb-h {
   display: block; margin: 12px 0 3px; font-size: 10.5px; letter-spacing: 0.08em;
   font-weight: 700; color: var(--accent-2);
 }
-.end-body .eb-h:first-child { margin-top: 0; }
-.end-body .eb-b { display: block; padding-left: 11px; text-indent: -8px; margin: 2px 0; }
-.end-body .eb-p { display: block; margin: 0 0 5px; }
-.end-body .eb-wait { color: var(--text-muted); }
-.end-body .eb-err { color: var(--danger); }
-.end-actions { display: flex; gap: 7px; }
-.end-actions.hidden { display: none; }
-.end-actions .btn-sec { height: 34px; font-size: 11.5px; flex: 1; }
-
-/* Corner copy action: one icon that copies whichever tab is open, confirming
-   in place by flipping to a tick — no footer buttons competing with the report. */
-.end-head-actions { display: flex; align-items: center; gap: 2px; }
-.icon-copy .ic-check { display: none; }
-.icon-copy.copied .ic-copy { display: none; }
-.icon-copy.copied .ic-check { display: block; }
-.icon-copy.copied,
-.icon-copy.copied:hover { color: var(--success); background: var(--success-soft); }
-.icon-copy:disabled { opacity: 0.3; cursor: default; }
-.icon-copy:disabled:hover { background: transparent; color: var(--text-muted); }
-.end-hint { font-size: 10.5px; color: var(--text-muted); text-align: center; }
+.session-viewer .eb-h:first-child { margin-top: 0; }
+.session-viewer .eb-b { display: block; padding-left: 11px; text-indent: -8px; margin: 2px 0; }
+.session-viewer .eb-p { display: block; margin: 0 0 5px; }
 .session-viewer .sv-q { color: #7cc4ff; font-weight: 650; }
 .session-viewer .sv-a { color: #cbbcff; }
 

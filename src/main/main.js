@@ -6,6 +6,7 @@ const { createOverlayWindow } = require('./windows/overlayWindow');
 const { createIndicatorWindow } = require('./windows/indicatorWindow');
 const { createOnboardingWindow } = require('./windows/onboardingWindow');
 const { createSnipWindow } = require('./windows/snipWindow');
+const { createReportWindow, getReportWindow, closeReportWindow } = require('./windows/reportWindow');
 const { startSignin } = require('./auth/signinFlow');
 const sessionStore = require('./state/sessionStore');
 const { registerStealthToggle, unregisterAll } = require('./shortcuts/stealthShortcut');
@@ -773,13 +774,81 @@ function startMainApp() {
     }
   });
 
-  // ── End of session: transcript + summary the user can copy ────────────────
-  // The closing act of a call. The transcript is assembled locally (instant);
-  // the summary is one LLM pass — or two for a long meeting, which is chunked
-  // and merged in sessionReport. Ending also ARCHIVES the session right away,
-  // with its summary, so it survives the app being closed instead of only being
-  // saved when a later session starts. Safe to call twice (a retry after a
-  // failed summary re-uses the existing archive rather than duplicating it).
+  // A two-hour meeting's transcript doesn't fit in a prompt. Keep the head and
+  // the tail — the opening frames the session and the close carries the
+  // commitments — and mark the elision so the model knows not to claim coverage
+  // of the middle.
+  const QA_TRANSCRIPT_CHARS = 15000;
+  function clipForQa(transcript) {
+    const t = String(transcript || '');
+    if (t.length <= QA_TRANSCRIPT_CHARS) return t;
+    const head = t.slice(0, 6000);
+    const tail = t.slice(-(QA_TRANSCRIPT_CHARS - 6000));
+    return `${head}\n\n[… middle of the transcript omitted for length — the summary above covers it …]\n\n${tail}`;
+  }
+
+  // ── End of session: the report window ─────────────────────────────────────
+  // The closing act of a call. The transcript is assembled locally (instant) and
+  // the report window opens on it straight away; the summary is one LLM pass —
+  // or two for a long meeting, which is chunked and merged in sessionReport —
+  // and is pushed in when it lands, so the user is never staring at a spinner
+  // with nothing to read. Ending also ARCHIVES the session right away, with its
+  // summary, so it survives the app being closed instead of only being saved
+  // when a later session starts.
+  //
+  // `reportState` is what the window renders; `reportSource` is what Regenerate
+  // and Ask work from — a SNAPSHOT of the lines taken at end time, because the
+  // pipeline keeps running underneath and appState.transcript can move on.
+  let reportState = null;
+  let reportSource = null;
+  let reportChat = [];
+
+  const reportPayload = () => (reportState ? { ...reportState, chat: reportChat } : null);
+
+  function pushReport() {
+    const win = getReportWindow();
+    if (win) win.webContents.send('report:data', reportPayload());
+  }
+
+  // The overlay is alwaysOnTop by design; a maximized report underneath it is
+  // unreadable, so it stands down while the report is open and goes back up
+  // when the report closes.
+  function openReport() {
+    createReportWindow({
+      productName: PRODUCT_NAME,
+      onClosed: () => {
+        if (overlayWin && !overlayWin.isDestroyed()) overlayWin.setAlwaysOnTop(true, 'screen-saver');
+      },
+    });
+    if (overlayWin && !overlayWin.isDestroyed()) overlayWin.setAlwaysOnTop(false);
+    pushReport();
+  }
+
+  async function writeSummary() {
+    const t0 = Date.now();
+    reportState.generating = true;
+    reportState.error = null;
+    pushReport();
+    try {
+      const summary = await sessionReport.summarize({
+        llmClient,
+        promptBuilder,
+        lines: reportSource.lines,
+        modeId: reportSource.modeId,
+        modeLabel: reportSource.modeLabel,
+        modeContext: reportSource.modeContext,
+        documentContext: reportSource.documentContext,
+      });
+      reportState.summary = summary;
+      if (summary) qaLog.log('session_summary', { ms: Date.now() - t0, chars: summary.length });
+    } catch (err) {
+      reportState.error = err.message;
+      qaLog.log('session_summary_error', { error: err.message });
+    }
+    reportState.generating = false;
+    return reportState.summary;
+  }
+
   ipcMain.handle('session:end', async () => {
     const settings = userSettingsStore.getCachedSettings();
     const modeId = settings.activeMode;
@@ -788,39 +857,38 @@ function startMainApp() {
     const lines = cleanTranscript();
     const stats = sessionReport.stats(lines);
     const answered = appState.sessionAnswers.filter((a) => a.kind === 'answer' || a.kind === 'code').length;
+    reportChat = [];
+
     if (!lines.length) {
-      return { empty: true, transcript: '', summary: '', stats, answered, modeLabel };
+      reportState = { empty: true, transcript: '', summary: '', stats, answered, modeLabel, modeId };
+      reportSource = null;
+      openReport();
+      return { ...reportState };
     }
 
     const transcript = sessionReport.formatTranscript(lines, { modeId, modeLabel, productName: PRODUCT_NAME });
     qaLog.log('session_end', { mode: modeId, lines: lines.length, answered, ms: stats.durationMs });
 
-    let summary = '';
-    let error = null;
-    const t0 = Date.now();
-    try {
-      summary = await sessionReport.summarize({
-        llmClient,
-        promptBuilder,
-        lines,
-        modeId,
-        modeLabel,
-        modeContext: activeModeContext(),
-        documentContext: docSummary(),
-      });
-    } catch (err) {
-      error = err.message;
-      qaLog.log('session_summary_error', { error: err.message });
-    }
-    if (summary) {
-      appState.sessionSummary = summary;
-      qaLog.log('session_summary', { ms: Date.now() - t0, chars: summary.length });
-    }
+    reportState = {
+      title: 'Session report',
+      transcript, summary: '', error: null, generating: true,
+      stats, answered, modeLabel, modeId, saved: null,
+    };
+    reportSource = {
+      lines, modeId, modeLabel,
+      modeContext: activeModeContext(),
+      documentContext: docSummary(),
+      savedId: null,
+    };
+    openReport();
 
-    let saved = null;
+    const summary = await writeSummary();
+    if (summary) appState.sessionSummary = summary;
+    pushReport();
+
     if (!appState.archivedAt) {
       try {
-        saved = await sessionsArchive.archiveSession({
+        const saved = await sessionsArchive.archiveSession({
           transcript: appState.transcript,
           answers: appState.sessionAnswers,
           modeId,
@@ -829,13 +897,113 @@ function startMainApp() {
           docFileName: (settings.documentContext && settings.documentContext[modeId] || {}).fileName,
           summary: appState.sessionSummary,
         });
-        if (saved) appState.archivedAt = Date.now();
+        if (saved) {
+          appState.archivedAt = Date.now();
+          reportState.saved = saved;
+          reportSource.savedId = saved.id;
+        }
       } catch (err) {
         console.error('[sessions] archive failed:', err.message);
       }
     }
+    pushReport();
 
-    return { transcript, summary, error, stats, answered, modeLabel, saved };
+    return { ...reportState };
+  });
+
+  // Re-open a SAVED session in the same window — the summary, the transcript and
+  // the Q&A all work the same way whether the call ended a minute or a month ago.
+  ipcMain.handle('report:open-session', async (_event, id) => {
+    const record = await sessionsArchive.getSession(id);
+    if (!record) return { error: 'That session could not be loaded.' };
+    const lines = (record.transcript || []).filter((t) => !t.readBack);
+    const mode = getMode(record.modeId);
+    const modeLabel = mode ? mode.label : '';
+    const answered = (record.answers || []).filter((a) => a.kind === 'answer' || a.kind === 'code').length;
+    reportChat = [];
+    reportState = {
+      title: record.name || 'Session report',
+      transcript: sessionReport.formatTranscript(lines, { modeId: record.modeId, modeLabel, productName: PRODUCT_NAME }),
+      summary: record.summary || '',
+      error: null,
+      generating: false,
+      empty: !lines.length,
+      stats: sessionReport.stats(lines),
+      answered,
+      modeLabel,
+      modeId: record.modeId,
+      saved: { id: record.id, name: record.name },
+    };
+    reportSource = {
+      lines, modeId: record.modeId, modeLabel,
+      modeContext: record.modeContext || null,
+      documentContext: null,
+      savedId: record.id,
+    };
+    openReport();
+    return { ok: true };
+  });
+
+  ipcMain.handle('report:get', () => reportPayload());
+
+  ipcMain.handle('report:clear-chat', () => { reportChat = []; return { ok: true }; });
+
+  ipcMain.on('report:close', () => closeReportWindow());
+
+  // "Write it again" — same material, fresh pass. Worth having as a first-class
+  // action because summary quality is model-variance-bound on the free tiers.
+  ipcMain.handle('report:regenerate', async () => {
+    if (!reportState || !reportSource || !reportSource.lines.length) {
+      return { error: 'There is no session to summarize.' };
+    }
+    const summary = await writeSummary();
+    if (summary) {
+      appState.sessionSummary = summary;
+      // Keep the archived copy in step, or Past sessions serves the version the
+      // user just rejected.
+      if (reportSource.savedId) {
+        try {
+          await sessionsArchive.updateSessionSummary(reportSource.savedId, summary);
+        } catch (err) {
+          console.error('[sessions] summary update failed:', err.message);
+        }
+      }
+      qaLog.log('session_summary_regenerated', { chars: summary.length });
+    }
+    pushReport();
+    return reportPayload();
+  });
+
+  // Grounded Q&A over the finished session. Uses the `summary` generation
+  // profile — a document-length budget with the spoken-answer cleaners off; the
+  // live-answer default would cut an answer off mid-list.
+  ipcMain.handle('report:ask', async (_event, { question } = {}) => {
+    const q = String(question || '').trim();
+    if (!q) return { error: 'Ask a question first.' };
+    if (!reportState || reportState.empty) return { error: 'There is no session to ask about.' };
+    try {
+      const answer = await llmClient.getCompletion({
+        systemPrompt:
+          'You answer questions about a meeting or interview the user just had, using only the '
+          + 'transcript and summary you are given. You never invent facts, names, numbers or '
+          + 'commitments, and you say plainly when something did not come up. You answer briefly, '
+          + 'in plain text, using "- " bullets when you list things.',
+        userPrompt: promptBuilder.buildMeetingQaPrompt({
+          question: q,
+          transcriptText: clipForQa(reportState.transcript),
+          summary: reportState.summary,
+          modeLabel: reportState.modeLabel,
+          history: reportChat.slice(-3),
+        }),
+        task: 'summary',
+      });
+      reportChat.push({ q, a: answer, at: Date.now() });
+      qaLog.log('report_question', { chars: q.length, answerChars: (answer || '').length });
+      return { answer };
+    } catch (err) {
+      qaLog.log('report_question_error', { error: err.message });
+      return { error: err.message };
+    }
   });
 
   // ── Sessions: auto-archive the old, open fresh ────────────────────────────

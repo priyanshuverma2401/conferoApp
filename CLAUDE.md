@@ -215,6 +215,58 @@ only one of the two is not enough. Verified with REAL trusted clicks via
 by reading the OS clipboard back with `Get-Clipboard`: summary tab → formatted
 summary, transcript tab → transcript, Code Assist → the code block.
 
+**Report modal → full-screen REPORT WINDOW (summary · transcript · ask):** the
+end-of-session modal is GONE from the overlay (markup, `renderEndBody`,
+`runEndSession`, `.end-*` CSS all deleted). Ending now opens
+`src/renderer/report.html` in its own maximized BrowserWindow
+(`windows/reportWindow.js`) — white page, neutral canvas, an 860px document card,
+normal window chrome, in the taskbar, NOT content-protected (the call is over;
+the point is being able to read/share/print it — `@media print` is styled).
+Layout: title bar (mode · date · duration · lines · answered) with Regenerate +
+Copy + ✕, a Summary/Transcript tab strip with "Find in transcript" (Ctrl+F,
+highlights + dims non-matches), the document, and a docked **Ask about this
+meeting** composer at the bottom. Transcript renders as speaker rows (time /
+name / text, "You" tinted differently) by re-parsing the copyable plain-text
+artifact; an unparseable one falls back to `<pre>`.
+- **Main-side state:** `reportState` (what the window renders) + `reportSource`
+  (a SNAPSHOT of the lines at end time — the pipeline keeps running underneath,
+  so `appState.transcript` can move on) + `reportChat`. `session:end` opens the
+  window as soon as the transcript is assembled and PUSHES `report:data` when the
+  summary lands and again after archiving, so the user reads the transcript while
+  the summary is still being written (skeleton placeholder). IPC: `report:get`
+  (load/reload), `report:regenerate`, `report:ask`, `report:clear-chat`,
+  `report:close`, `report:open-session` (re-open a SAVED session in the same
+  window — wired to a new "Open full report" button in the past-sessions viewer).
+- **Regenerate** re-runs `sessionReport.summarize` on the snapshot and writes the
+  result back to the archive via the new `sessionsArchive.updateSessionSummary`,
+  or Past sessions keeps serving the version the user just rejected. A failed
+  regenerate leaves the old summary standing behind a `.notice` strip.
+- **Ask** is grounded Q&A over transcript+summary: `buildMeetingQaPrompt` (new,
+  in promptBuilder) — answer only from the material, say "That didn't come up in
+  this session." rather than reaching for general knowledge, quote with the
+  [mm:ss] stamp. Sends `task:'summary'` (1100 tokens / 30s / cleaners off); the
+  live-answer default would cut answers off mid-list, and reusing the existing
+  profile means NO backend change or Render redeploy. Long meetings are clipped
+  head+tail with an elision marker. Mode-aware starter chips; thread capped at
+  34vh with a header (Clear / collapse) so a long Q&A never squeezes the document.
+- **Overlay stands down** (`setAlwaysOnTop(false)`) while the report is open and
+  goes back up when it closes — the overlay is always-on-top by design and would
+  otherwise float over a maximized report.
+- The shape-repair parser moved out of renderer.js into
+  `src/renderer/summaryFormat.js` (`normalizeSummary` + a new `parseSummary`
+  returning sections/blocks), shared by both windows: the overlay still emits its
+  `.eb-*` spans for past sessions, the report window emits real `<h2>`/`<ul>`.
+  Those `.eb-*` rules were scoped to `.end-body` and are now `.session-viewer`, so
+  a saved summary is finally styled in the viewer too.
+Verified via CDP end-to-end against a live backend: real End click with a seeded
+transcript → window opens with 9 transcript rows while the skeleton shows → 4
+headings / 7 bullets → "Saved to Past sessions"; overlay alwaysOnTop false during
+and true after close; Regenerate (live) rewrote the archive file; Ask answered 3
+questions grounded (incl. refusing one the transcript couldn't support); copy with
+REAL trusted clicks read back off the OS clipboard (summary keeps its newlines,
+transcript keeps its ─ rule and · separators); past-sessions "Open full report";
+640px-wide layout stacks with no horizontal scroll.
+
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
    append in `getSystemPrompt`, add a small settings field targeting the active mode.

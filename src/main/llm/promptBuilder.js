@@ -300,10 +300,43 @@ Formatting rules — these matter as much as the content:
 - OVERVIEW is the only section written as sentences, and it stays under three.`;
 }
 
+// The closing report is a document the user can interrogate — "what did I commit
+// to?", "how did I answer the sharding question?" — instead of re-reading twenty
+// minutes of transcript. Grounding is the whole contract here: a recap that
+// invents a commitment or a name is worse than no recap, so the model is told to
+// say the thing didn't come up rather than reach for its own knowledge.
+function buildMeetingQaPrompt({ question, transcriptText, summary, modeLabel, history }) {
+  const summaryPart = summary ? `## Summary of the session\n${summary}\n\n` : '';
+  const historyPart = history && history.length
+    ? `## Earlier in this Q&A\n${history.map((h) => `Q: ${h.q}\nA: ${h.a}`).join('\n\n')}\n\n`
+    : '';
+
+  return `${summaryPart}## Transcript of the session
+${transcriptText}
+
+${historyPart}## The user's question about this ${modeLabel || 'session'}
+${question}
+
+Answer using ONLY the material above. Rules:
+- If the answer isn't in the transcript or summary, say so plainly in one line
+  ("That didn't come up in this session.") and stop. Never fill the gap from
+  general knowledge, and never invent a name, number, date or commitment.
+- The transcript is machine-generated, so read a garbled word as the closest real
+  term from the context.
+- Be direct and short — under 120 words unless the question asks for a list.
+- Plain text. Use "- " bullets when you're listing things, one idea per bullet.
+  No markdown, no headings, no preamble, no sign-off.
+- Quote the speaker in a few words with their [mm:ss] stamp when it settles the
+  question ("at [12:04] you said …").
+- Speak to the user as "you", and call the other side by the label the transcript
+  uses.`;
+}
+
 module.exports = {
   DEFAULT_SYSTEM_PROMPT,
   getSystemPrompt,
   buildSessionSummaryPrompt,
+  buildMeetingQaPrompt,
   buildTranscriptNotesPrompt,
   buildSuggestionPrompt,
   buildMetaPrompt,

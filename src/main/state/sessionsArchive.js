@@ -74,4 +74,14 @@ async function getSession(id) {
   }
 }
 
-module.exports = { archiveSession, listSessions, getSession };
+// Regenerating the summary in the report window has to reach the saved copy too
+// — otherwise Past sessions keeps serving the version the user just rejected.
+async function updateSessionSummary(id, summary) {
+  const record = await getSession(id);
+  if (!record) return false;
+  record.summary = summary || null;
+  await fs.promises.writeFile(path.join(SESSIONS_DIR, `${id}.json`), JSON.stringify(record, null, 2));
+  return true;
+}
+
+module.exports = { archiveSession, listSessions, getSession, updateSessionSummary };
