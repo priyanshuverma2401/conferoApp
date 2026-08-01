@@ -22,7 +22,7 @@ const promptBuilder = require('./llm/promptBuilder');
 const appState = require('./state/appState');
 const sessionsArchive = require('./state/sessionsArchive');
 const qaLog = require('./state/qaLog');
-const { createAskBuffer, overlapRatio } = require('./state/askBuffer');
+const { createAskBuffer, splitAsks, overlapRatio } = require('./state/askBuffer');
 
 const SUGGESTION_WINDOW_MS = 90 * 1000;
 const GUARDRAIL_INTERVAL_MS = 15 * 1000;
@@ -387,9 +387,15 @@ function startMainApp() {
     const t0 = Date.now();
     let answer;
     try {
+      // Separate the asks HERE rather than making the model find them — a weak
+      // fallback model answers the first and pads the rest. When this finds two
+      // or more, the prompt gets a numbered list and a block-per-number rule.
+      const asks = rawSpeech ? splitAsks(questionText) : [];
+      if (asks.length > 1) qaLog.log('multi_ask', { gen, count: asks.length });
       const promptArgs = {
         question: questionText,
         rawSpeech,
+        asks,
         transcriptWindow: recentWindow(),
         // What the candidate already told the interviewer earlier this session —
         // so a follow-up on a project/tool they mentioned several questions ago is

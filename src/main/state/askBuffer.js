@@ -25,6 +25,52 @@ function overlapRatio(haystack, candidate) {
   return hits / words.length;
 }
 
+// ── Splitting a stretch into the distinct things they asked ────────────────
+// Observed live on llama-3.1-8b-instant: given "What is SOLID? Can you explain
+// the design pattern?" and told to "count how many things they asked, then pick
+// an output shape", the model did neither — it answered the first question and
+// filled the remaining blocks with the template's own example labels ("My role",
+// "Stronger version"). Asking a weak model to both parse messy speech AND choose
+// a structure is one job too many.
+//
+// So the parsing happens HERE, for free, before the model is involved: the
+// prompt then receives a numbered list and one flat instruction — one block per
+// number — with no counting or branching left to do.
+const INTERROGATIVE_RE = /^(what|how|why|when|where|who|which|can|could|would|will|do|does|did|is|are|was|were|tell me|tell us|walk me|walk us|take me|talk me|explain|describe|give me|share|help me understand)\b/i;
+const DISCOURSE_PREFIX_RE = /^(okay|ok|so|alright|right|great|well|but|and|now|um|uh|yeah|look|listen|actually|thanks|thank you|perfect|good|fine|sure)[,\s]+/i;
+
+function stripDiscourse(sentence) {
+  let out = sentence.trim();
+  for (let i = 0; i < 4; i++) {
+    const next = out.replace(DISCOURSE_PREFIX_RE, '').trim();
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+// → the asks, in the order they were made. [] or one entry means there's nothing
+// to enumerate and the caller should use the stretch as-is.
+function splitAsks(text) {
+  // Keep the terminator on each sentence — the "?" is most of the signal.
+  const sentences = String(text || '').match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
+  const asks = [];
+  for (const raw of sentences) {
+    const sentence = raw.trim();
+    if (!sentence) continue;
+    const core = stripDiscourse(sentence);
+    const isAsk = sentence.includes('?')
+      || (INTERROGATIVE_RE.test(core) && core.split(/\s+/).length >= 4);
+    if (!isAsk) continue;
+    // A restatement of the same ask ("what's SOLID" → "what is SOLID exactly")
+    // is one question, not two. Higher bar than the buffer's dedupe: two asks
+    // about the same topic legitimately share most of their words.
+    if (asks.some((a) => overlapRatio(a, sentence) >= 0.8)) continue;
+    asks.push(sentence);
+  }
+  return asks;
+}
+
 const DEFAULTS = {
   maxLines: 14,
   maxChars: 2400,
@@ -78,4 +124,4 @@ function createAskBuffer(options = {}) {
   };
 }
 
-module.exports = { createAskBuffer, overlapRatio, DEFAULTS };
+module.exports = { createAskBuffer, splitAsks, overlapRatio, DEFAULTS };

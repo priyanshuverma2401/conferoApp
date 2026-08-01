@@ -152,22 +152,40 @@ and the asides that ask nothing. If they only made statements and never asked
 anything, respond to the point they were making.`;
 }
 
-function buildAnswerPrompt({ question, rawSpeech, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA }) {
+// When the asks could be separated locally (splitAsks), the model is handed the
+// list instead of being asked to find and count them. One flat rule — a block
+// per number — is something even the weakest fallback model follows; "work out
+// how many they asked, then choose a format" is not (observed: it answered the
+// first and padded the rest with the template's own example labels).
+function asksList(asks) {
+  const list = asks.map((a, i) => `${i + 1}. ${a}`).join('\n');
+  return `\nThey asked ${asks.length} separate things:\n${list}\n\nAnswer EVERY one of them. Block 1 answers question 1, block 2 answers question 2, and so on, in that order. Do not stop after the first. Do not merge two of them into one block. Do not spend a block on a follow-up or a stronger version until all ${asks.length} have their own.\n`;
+}
+
+function buildAnswerPrompt({ question, rawSpeech, asks, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA }) {
   const lines = (transcriptWindow || [])
     .map((t) => `[${t.source === 'system' ? 'Interviewer' : 'Me'}] ${t.text}`)
     .join('\n');
   const convo = lines ? `Recent conversation ([Interviewer] = them, [Me] = what I said):\n${lines}\n\n` : '';
+  const multi = Array.isArray(asks) && asks.length > 1;
+
+  // Two different jobs, so two different specs — never a rule the model has to
+  // pick between. Note the label EXAMPLES differ too: weak models copy them
+  // verbatim, which is how a three-question ask came back as
+  // "Say this / My role / Stronger version / If they push deeper".
+  const blockSpec = multi
+    ? `Give me exactly ${asks.length} blocks — one per numbered question above, in that order. Name each block after the question it answers. Format each block as exactly two lines:
+LABEL: a short cue of 2 to 6 words naming that question — e.g. "What SOLID is", "How we tested it", "What I'd change"
+SAY: the exact words to speak for THAT question — specific, grounded ONLY in my background above, one to three short sentences`
+    : `Give me what to say, as 3 or 4 labeled blocks. The FIRST block is the main answer to say right now; the rest cover the natural follow-up, a stronger version, or how to go deeper if pushed. Format each block as exactly two lines:
+LABEL: a short cue of 2 to 6 words — e.g. "Say this", "My role", "Stronger version", "If they push deeper"
+SAY: the exact words to speak — specific, grounded ONLY in my background above, one to three short sentences`;
+
   return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${threadClause(prevQA)}${convo}${askedBlock({ question, rawSpeech })}
+${multi ? asksList(asks) : ''}
+${blockSpec}
 
-Give me what to say as labeled blocks. First count how many distinct things they asked, then:
-- ONE thing asked → 3 or 4 blocks: the first is the answer to say right now, the rest cover the natural follow-up, a stronger version, or how to go deeper if pushed.
-- MORE THAN ONE thing asked → one block PER thing, in the order they asked them, and every one gets answered. Name each block after the part it answers ("The migration", "How we tested it", "What I'd change"). Only add follow-up or stronger-version blocks once every part already has its own.
-
-Never leave a part of what they asked unanswered — a half-answered multi-part question is worse than a brief one. If that means less room, make each SAY shorter rather than dropping a part.
-
-Format each block as exactly two lines:
-LABEL: a short cue of 2 to 6 words — e.g. "Say this", "My role", "How we tested it", "If they push deeper"
-SAY: the exact words to speak — specific, grounded ONLY in my background above, one to three short sentences
+Never leave any part of what they asked unanswered — a half-answered multi-part question is worse than a brief one. If space is tight, make each SAY shorter rather than dropping a part.
 
 ${SPOKEN_STYLE}
 
