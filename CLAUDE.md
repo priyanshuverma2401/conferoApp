@@ -249,6 +249,26 @@ artifact; an unparseable one falls back to `<pre>`.
   profile means NO backend change or Render redeploy. Long meetings are clipped
   head+tail with an elision marker. Mode-aware starter chips; thread capped at
   34vh with a header (Clear / collapse) so a long Q&A never squeezes the document.
+- **Download PDF** (`report:export-pdf`): main runs `dialog.showSaveDialog`
+  (defaults to Downloads, filename `Confero — <title> — <date>.pdf`, Windows-
+  illegal chars stripped) then `webContents.printToPDF` (A4, `printBackground`,
+  page-number footer) and writes the file; the page shows a toast with the
+  filename + "Show in folder" (`report:reveal` → `shell.showItemInFolder`), and a
+  cancel is a silent no-op. The PDF is NOT a snapshot of the open tab: the page
+  carries a print-only `#rPrint` block holding a title block + Summary + Transcript,
+  and `@media print` hides the chrome and the tab view and shows that instead, so
+  the file is always the whole report (`break-before: page` between the two parts,
+  `break-inside: avoid` on sections and transcript rows).
+- **Leaving is "← Back", not a ✕**, and it sits on the LEFT of the title bar:
+  the report is in FRONT of the app, so closing it returns you to Confero — and
+  an in-page ✕ at top-right was one pixel-row away from the OS close button.
+  Esc still does the same thing. The title-bar actions (Regenerate · Copy summary ·
+  Download PDF) are one visual family — same white fill, same height; the primary
+  one is marked by its BORDER and label colour, never a solid block, and the
+  transient confirmations (copied / saved) colour the border and label green too.
+- A 10px **"AI-generated content may be incorrect."** sits in the window's
+  bottom-left corner (outside `.ask-inner`, or the 860px column would drag it to
+  the middle) and a fuller version closes the Summary part of the PDF.
 - **Overlay stands down** (`setAlwaysOnTop(false)`) while the report is open and
   goes back up when it closes — the overlay is always-on-top by design and would
   otherwise float over a maximized report.
@@ -265,7 +285,19 @@ and true after close; Regenerate (live) rewrote the archive file; Ask answered 3
 questions grounded (incl. refusing one the transcript couldn't support); copy with
 REAL trusted clicks read back off the OS clipboard (summary keeps its newlines,
 transcript keeps its ─ rule and · separators); past-sessions "Open full report";
-640px-wide layout stacks with no horizontal scroll.
+640px-wide layout stacks with no horizontal scroll. PDF verified by stubbing
+`dialog.showSaveDialog` from the main-process inspector and clicking for real:
+101KB / 4-page `%PDF-1.4` on disk, toast + "Show in folder", cancel is a no-op,
+and the print layout checked with `Emulation.setEmulatedMedia({media:'print'})`
+(chrome hidden, title block + both parts, 4 summary headings + 16 transcript
+rows). Note the PDF's own bytes weren't text-extracted — Chromium subsets its
+fonts — so the print-media DOM render is the evidence for content.
+CDP note for future runs: `createReportWindow` REUSES an open window, so a CSS/JS
+change needs `Page.reload({ignoreCache:true})` or the old stylesheet is what you
+screenshot. The main process has no `require` in its inspector context — use
+`process.getBuiltinModule('module').createRequire('D:/confero-main/package.json')`,
+and match the drive-letter CASE or you get a second module-cache entry and your
+`appState` writes land in a copy nobody reads.
 
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,

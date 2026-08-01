@@ -13,6 +13,14 @@
   <div class="page">
     <header class="topbar">
       <div class="tb-brand">
+        <!-- Back, not a ✕: this window sits in FRONT of the app, so leaving it
+             returns you to Confero. It also lives on the left, where a back
+             action is looked for — and where it can't be mistaken for the OS
+             close button in the window frame. -->
+        <button id="rBack" class="btn tb-back" title="Back to Confero (Esc)">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8H3.2M7 3.6L2.6 8 7 12.4"/></svg>
+          <span>Back</span>
+        </button>
         <span class="mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect width="24" height="24" rx="6.5" fill="url(#cfGrad)"/>
@@ -42,8 +50,9 @@
           <svg class="ic-check" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.6l3.2 3.2L13 5"/></svg>
           <span id="rCopyLabel">Copy summary</span>
         </button>
-        <button id="rClose" class="btn icon" title="Close (Esc)" aria-label="Close">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.2 3.2l9.6 9.6M12.8 3.2l-9.6 9.6"/></svg>
+        <button id="rPdf" class="btn" title="Save the whole report as a PDF">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.9v7.6M5 6.6L8 9.6l3-3"/><path d="M2.4 11v1.8a1.3 1.3 0 0 0 1.3 1.3h8.6a1.3 1.3 0 0 0 1.3-1.3V11"/></svg>
+          <span id="rPdfLabel">Download PDF</span>
         </button>
       </div>
     </header>
@@ -65,6 +74,10 @@
 
     <main class="scroll" id="rScroll">
       <article class="doc" id="rDoc"></article>
+      <!-- Print/PDF only. printToPDF renders this live page under print media, so
+           the exported file is the WHOLE report — title block, summary and
+           transcript — not a snapshot of whichever tab happens to be open. -->
+      <article class="print-doc" id="rPrint" aria-hidden="true"></article>
     </main>
 
     <!-- Ask dock: grounded Q&A over this session's transcript + summary. -->
@@ -92,7 +105,12 @@
         </form>
         <p class="ask-foot" id="rAskFoot">Answers come only from this session's transcript and summary.</p>
       </div>
+      <!-- Corner disclaimer: the summary and every answer here are model output. -->
+      <p class="ask-legal">AI-generated content may be incorrect.</p>
     </section>
+
+    <!-- Where the PDF went. A saved file the user can't find reads as a failure. -->
+    <div class="toast" id="rToast" role="status"></div>
   </div>
 
   <script src="summaryFormat.js"></script>

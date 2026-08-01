@@ -11,10 +11,13 @@ const rMeta = el('rMeta');
 const rSaved = el('rSaved');
 const rDoc = el('rDoc');
 const rScroll = el('rScroll');
+const rPrint = el('rPrint');
 const rCopy = el('rCopy');
 const rCopyLabel = el('rCopyLabel');
+const rPdf = el('rPdf');
+const rPdfLabel = el('rPdfLabel');
 const rRegen = el('rRegen');
-const rClose = el('rClose');
+const rBack = el('rBack');
 const rFindWrap = el('rFindWrap');
 const rFind = el('rFind');
 const rFindCount = el('rFindCount');
@@ -33,6 +36,7 @@ let report = null;      // the payload from main
 let tab = 'summary';
 let asking = false;
 let regenerating = false;
+let pdfBusy = false;
 let transcriptRows = []; // parsed once per report, re-filtered on search
 
 function escapeHtml(s) {
@@ -120,6 +124,42 @@ function transcriptDoc() {
   return html;
 }
 
+// The exported document — always both halves, never filtered by the on-screen
+// search, and with a title block the tab view doesn't need because the window
+// chrome carries it.
+function printDoc() {
+  if (!report || report.empty) return '';
+  const s = report.stats || {};
+  const when = s.startedAt
+    ? new Date(s.startedAt).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '';
+  const meta = [report.modeLabel, when, s.duration, s.lines ? `${s.lines} lines` : null,
+    report.answered ? `${report.answered} answered` : null].filter(Boolean).join(' · ');
+
+  const summary = report.summary
+    ? summaryDoc(report.summary)
+    : '<p class="pd-none">No summary was generated for this session.</p>';
+  const transcript = transcriptRows.length
+    ? transcriptRows.map((r) => `<div class="t-line${isSelf(r.who) ? ' self' : ''}">
+        <span class="t-time">${escapeHtml(r.time)}</span>
+        <span class="t-who">${escapeHtml(r.who)}</span>
+        <span class="t-text">${escapeHtml(r.text)}</span>
+      </div>`).join('')
+    : (report.transcript
+      ? `<pre class="t-raw">${escapeHtml(report.transcript)}</pre>`
+      : '<p class="pd-none">Nothing was captured in this session.</p>');
+
+  return `<header class="pd-head">
+      <p class="pd-brand">Confero</p>
+      <h1>${escapeHtml(report.title || 'Session report')}</h1>
+      <p>${escapeHtml(meta)}</p>
+    </header>
+    <section class="pd-part"><h2>Summary</h2>${summary}
+      <p class="pd-legal">AI-generated content may be incorrect. Check anything you rely on against the transcript.</p>
+    </section>
+    <section class="pd-part"><h2>Transcript</h2>${transcript}</section>`;
+}
+
 // ── Render ────────────────────────────────────────────────────────────────
 // Ragged line widths (set in CSS, not inline — the page runs under a strict CSP)
 // so the placeholder reads as text being written rather than as a loading bar.
@@ -147,10 +187,14 @@ function render() {
   // Regenerate only makes sense for the generated half.
   rRegen.classList.toggle('hidden', tab !== 'summary');
 
+  // Kept in step with the tab view so the PDF is never a stale copy.
+  rPrint.innerHTML = printDoc();
+
   if (!report) {
     rDoc.innerHTML = '<div class="state"><h2>Wrapping up…</h2><p>Assembling the transcript.</p></div>';
     rCopy.disabled = true;
     rRegen.disabled = true;
+    rPdf.disabled = true;
     return;
   }
 
@@ -158,8 +202,12 @@ function render() {
     rDoc.innerHTML = '<div class="state"><h2>Nothing was captured</h2><p>This session has no transcript yet, so there\'s nothing to summarize. Start a session and let it hear some conversation first.</p></div>';
     rCopy.disabled = true;
     rRegen.disabled = true;
+    rPdf.disabled = true;
     return;
   }
+  // Exportable as soon as the transcript exists — waiting for the summary would
+  // block a download the user can already use.
+  rPdf.disabled = pdfBusy;
 
   if (tab === 'transcript') {
     rDoc.innerHTML = transcriptDoc();
@@ -227,6 +275,58 @@ function copyNow(text, btn) {
 }
 
 rCopy.addEventListener('click', () => copyNow(currentText(), rCopy));
+
+// ── Download PDF ──────────────────────────────────────────────────────────
+// Main owns the save dialog and printToPDF; the page's job is the busy state
+// and telling the user WHERE the file went — a download that vanishes silently
+// reads as a failure.
+rPdf.addEventListener('click', async () => {
+  if (pdfBusy || !report || report.empty) return;
+  pdfBusy = true;
+  rPdf.disabled = true;
+  rPdfLabel.textContent = 'Saving…';
+  try {
+    const res = await api.exportPdf();
+    if (res && res.path) {
+      rPdf.classList.add('ok');
+      rPdfLabel.textContent = 'Saved';
+      showSavedToast(res.path);
+      setTimeout(() => { rPdf.classList.remove('ok'); rPdfLabel.textContent = 'Download PDF'; }, 2200);
+    } else {
+      rPdfLabel.textContent = 'Download PDF';
+      if (res && res.error) showSavedToast(null, res.error);
+    }
+  } catch (err) {
+    rPdfLabel.textContent = 'Download PDF';
+    showSavedToast(null, err.message);
+  } finally {
+    pdfBusy = false;
+    rPdf.disabled = false;
+  }
+});
+
+let toastTimer = null;
+function showSavedToast(filePath, error) {
+  const t = el('rToast');
+  t.innerHTML = '';
+  if (error) {
+    t.className = 'toast err';
+    t.textContent = `Couldn't save the PDF: ${error}`;
+  } else {
+    t.className = 'toast';
+    const name = filePath.split(/[\\/]/).pop();
+    const label = document.createElement('span');
+    label.textContent = `Saved ${name}`;
+    const open = document.createElement('button');
+    open.className = 'toast-link';
+    open.textContent = 'Show in folder';
+    open.addEventListener('click', () => api.reveal(filePath));
+    t.append(label, open);
+  }
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 6000);
+}
 
 // ── Tabs / search ─────────────────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach((t) => {
@@ -391,7 +491,7 @@ function autoGrow() {
 rInput.addEventListener('input', autoGrow);
 
 // ── Window chrome ─────────────────────────────────────────────────────────
-rClose.addEventListener('click', () => api.close());
+rBack.addEventListener('click', () => api.close());
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && document.activeElement !== rInput) api.close();
   // Ctrl+F is what anyone reaching for "where did they say X" presses.

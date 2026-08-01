@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const { app, session, desktopCapturer, screen, ipcMain, dialog, shell, globalShortcut } = require('electron');
 const { initMain: initLoopbackAudio } = require('electron-audio-loopback');
 const { loadConfig, isSetupComplete, PRODUCT_NAME, resolveBackendUrl } = require('./config/configLoader');
@@ -947,6 +948,56 @@ function startMainApp() {
   ipcMain.handle('report:get', () => reportPayload());
 
   ipcMain.handle('report:clear-chat', () => { reportChat = []; return { ok: true }; });
+
+  // Download PDF. printToPDF renders the LIVE page under print media, and the
+  // page keeps a print-only block holding the summary AND the transcript — so
+  // the file is the whole report regardless of which tab happens to be open,
+  // rather than a screenshot of the current view.
+  ipcMain.handle('report:export-pdf', async () => {
+    const win = getReportWindow();
+    if (!win) return { error: 'The report window is closed.' };
+    if (!reportState || reportState.empty) return { error: 'There is no report to export.' };
+
+    const stamp = new Date(reportState.stats && reportState.stats.startedAt ? reportState.stats.startedAt : Date.now())
+      .toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    const base = `${PRODUCT_NAME} — ${reportState.title || 'Session report'} — ${stamp}`
+      .replace(/[\\/:*?"<>|\r\n]+/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 120);
+
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Save session report',
+      defaultPath: path.join(app.getPath('downloads'), `${base}.pdf`),
+      filters: [{ name: 'PDF document', extensions: ['pdf'] }],
+    });
+    if (canceled || !filePath) return { cancelled: true };
+
+    try {
+      const pdf = await win.webContents.printToPDF({
+        printBackground: true,
+        pageSize: 'A4',
+        margins: { top: 0.55, bottom: 0.55, left: 0.55, right: 0.55 },
+        displayHeaderFooter: true,
+        headerTemplate: '<span></span>',
+        footerTemplate:
+          '<div style="width:100%;font-size:8px;color:#8a8a95;text-align:center;">'
+          + '<span class="pageNumber"></span> / <span class="totalPages"></span></div>',
+      });
+      await fs.promises.writeFile(filePath, pdf);
+      qaLog.log('report_pdf', { bytes: pdf.length });
+      return { path: filePath };
+    } catch (err) {
+      qaLog.log('report_pdf_error', { error: err.message });
+      return { error: err.message };
+    }
+  });
+
+  // "Show in folder" from the saved-confirmation — the user just made a file and
+  // the next thing they want is to attach it somewhere.
+  ipcMain.on('report:reveal', (_event, filePath) => {
+    if (typeof filePath === 'string' && filePath) shell.showItemInFolder(filePath);
+  });
 
   ipcMain.on('report:close', () => closeReportWindow());
 

@@ -151,5 +151,7 @@ contextBridge.exposeInMainWorld('reportAPI', {
   regenerate: () => ipcRenderer.invoke('report:regenerate'),
   ask: (question) => ipcRenderer.invoke('report:ask', { question }),
   clearChat: () => ipcRenderer.invoke('report:clear-chat'),
+  exportPdf: () => ipcRenderer.invoke('report:export-pdf'),
+  reveal: (filePath) => ipcRenderer.send('report:reveal', filePath),
   close: () => ipcRenderer.send('report:close'),
 });
