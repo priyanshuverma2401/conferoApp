@@ -124,12 +124,16 @@ contextBridge.exposeInMainWorld('stealthAPI', {
     return () => ipcRenderer.removeListener('answer:quick', listener);
   },
 
-  // End of session → { transcript, summary, stats, ... } for the report modal.
+  // End of session. Main assembles the transcript, opens the full-screen report
+  // window immediately, then fills the summary in — so this resolving is only
+  // the overlay's cue that the wrap-up finished.
   endSession: () => ipcRenderer.invoke('session:end'),
 
   archiveAndResetSession: () => ipcRenderer.invoke('sessions:archive-and-reset'),
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   getSession: (id) => ipcRenderer.invoke('sessions:get', id),
+  // Re-open a SAVED session in the same full-screen report window.
+  openSessionReport: (id) => ipcRenderer.invoke('report:open-session', id),
   onAnswerReady: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('answer:ready', listener);
@@ -140,4 +144,24 @@ contextBridge.exposeInMainWorld('stealthAPI', {
     ipcRenderer.on('answer:upnext', listener);
     return () => ipcRenderer.removeListener('answer:upnext', listener);
   },
+});
+
+// The session report runs in its own window off the same preload. It gets its
+// own bridge rather than sharing stealthAPI — a report page has no business
+// reaching audio capture or stealth state.
+contextBridge.exposeInMainWorld('reportAPI', {
+  // Current payload — used on load and after a window reload.
+  get: () => ipcRenderer.invoke('report:get'),
+  // Pushed when the summary lands, the archive is written, or a regenerate ends.
+  onData: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('report:data', listener);
+    return () => ipcRenderer.removeListener('report:data', listener);
+  },
+  regenerate: () => ipcRenderer.invoke('report:regenerate'),
+  ask: (question) => ipcRenderer.invoke('report:ask', { question }),
+  clearChat: () => ipcRenderer.invoke('report:clear-chat'),
+  exportPdf: () => ipcRenderer.invoke('report:export-pdf'),
+  reveal: (filePath) => ipcRenderer.send('report:reveal', filePath),
+  close: () => ipcRenderer.send('report:close'),
 });

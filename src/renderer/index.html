@@ -286,6 +286,7 @@
         <div id="sessionsList" class="sessions-list"></div>
         <div id="sessionViewer" class="session-viewer hidden"></div>
         <div id="sessionTools" class="sv-tools hidden">
+          <button id="svOpenFull" title="Open this session in the full report window">Open full report</button>
           <button id="svCopySummary">Copy summary</button>
           <button id="svCopyTranscript">Copy transcript</button>
         </div>
@@ -293,39 +294,9 @@
       </div>
     </div>
 
-    <!-- End-of-session report: the full transcript + an AI summary of what
-         happened, both copyable. Generated on demand when the user ends. -->
-    <div id="endModal" class="modal-cover hidden">
-      <div class="gate-card end-card">
-        <div class="end-head">
-          <h2>Session ended</h2>
-          <div class="end-head-actions">
-            <!-- Copy lives in the corner, not as a footer button: it acts on
-                 whichever tab is showing, so its place is beside the title. -->
-            <button id="endCopy" class="btn-icon icon-copy" title="Copy summary">
-              <svg class="ic-copy" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-                <rect x="5.6" y="5.6" width="8.4" height="8.4" rx="1.8"/>
-                <path d="M11 5.6V3.8A1.8 1.8 0 0 0 9.2 2H3.8A1.8 1.8 0 0 0 2 3.8v5.4A1.8 1.8 0 0 0 3.8 11h1.8"/>
-              </svg>
-              <svg class="ic-check" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 8.6l3.2 3.2L13 5"/>
-              </svg>
-            </button>
-            <button id="endClose" class="close-btn" title="Close">&times;</button>
-          </div>
-        </div>
-        <div id="endMeta" class="end-meta"></div>
-        <div class="end-tabs">
-          <button class="end-tab active" data-tab="summary">Summary</button>
-          <button class="end-tab" data-tab="transcript">Transcript</button>
-        </div>
-        <div id="endBody" class="end-body"></div>
-        <div id="endActions" class="end-actions hidden">
-          <button id="endRetry" class="btn-sec">Retry summary</button>
-        </div>
-        <div id="endHint" class="end-hint">Saved to Past sessions.</div>
-      </div>
-    </div>
+    <!-- The end-of-session report is no longer a modal in here: ending opens the
+         full-screen report window (src/renderer/report.html), which is a
+         document surface with copy, regenerate and Q&A. -->
 
     <!-- Launch step 1: what is this session FOR? Required — the persona behind
          every answer hangs off it, so there is no ✕ and no skip. Picking one
@@ -486,6 +457,7 @@
   </div>
   <script src="vad/utteranceSegmenter.js"></script>
   <script src="audioCapture.js"></script>
+  <script src="summaryFormat.js"></script>
   <script src="renderer.js"></script>
   <script src="settingsPanel.js"></script>
 </body>

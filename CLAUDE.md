@@ -370,6 +370,90 @@ question → real answer, "make it shorter and less formal" → same answer
 reworked, then a NEW question answered fresh; in-flight lock, Ask-button click
 path, and the empty-ask guard all confirmed.
 
+**Report modal → full-screen REPORT WINDOW (summary · transcript · ask):** the
+end-of-session modal is GONE from the overlay (markup, `renderEndBody`,
+`runEndSession`, `.end-*` CSS all deleted). Ending now opens
+`src/renderer/report.html` in its own maximized BrowserWindow
+(`windows/reportWindow.js`) — white page, neutral canvas, an 860px document card,
+normal window chrome, in the taskbar, NOT content-protected (the call is over;
+the point is being able to read/share/print it — `@media print` is styled).
+Layout: title bar (← Back · mode · date · duration · lines · answered · Regenerate ·
+Copy · Download PDF), a Summary/Transcript tab strip with "Find in transcript" (Ctrl+F,
+highlights + dims non-matches), the document, and a docked **Ask about this
+meeting** composer at the bottom. Transcript renders as speaker rows (time /
+name / text, "You" tinted differently) by re-parsing the copyable plain-text
+artifact; an unparseable one falls back to `<pre>`.
+- **Main-side state:** `reportState` (what the window renders) + `reportSource`
+  (a SNAPSHOT of the lines at end time — the pipeline keeps running underneath,
+  so `appState.transcript` can move on) + `reportChat`. `session:end` opens the
+  window as soon as the transcript is assembled and PUSHES `report:data` when the
+  summary lands and again after archiving, so the user reads the transcript while
+  the summary is still being written (skeleton placeholder). IPC: `report:get`
+  (load/reload), `report:regenerate`, `report:ask`, `report:clear-chat`,
+  `report:close`, `report:open-session` (re-open a SAVED session in the same
+  window — wired to a new "Open full report" button in the past-sessions viewer).
+- **Regenerate** re-runs `sessionReport.summarize` on the snapshot and writes the
+  result back to the archive via the new `sessionsArchive.updateSessionSummary`,
+  or Past sessions keeps serving the version the user just rejected. A failed
+  regenerate leaves the old summary standing behind a `.notice` strip.
+- **Ask** is grounded Q&A over transcript+summary: `buildMeetingQaPrompt` (new,
+  in promptBuilder) — answer only from the material, say "That didn't come up in
+  this session." rather than reaching for general knowledge, quote with the
+  [mm:ss] stamp. Sends `task:'summary'` (1100 tokens / 30s / cleaners off); the
+  live-answer default would cut answers off mid-list, and reusing the existing
+  profile means NO backend change or Render redeploy. Long meetings are clipped
+  head+tail with an elision marker. Mode-aware starter chips; thread capped at
+  34vh with a header (Clear / collapse) so a long Q&A never squeezes the document.
+- **Download PDF** (`report:export-pdf`): main runs `dialog.showSaveDialog`
+  (defaults to Downloads, filename `Confero — <title> — <date>.pdf`, Windows-
+  illegal chars stripped) then `webContents.printToPDF` (A4, `printBackground`,
+  page-number footer) and writes the file; the page shows a toast with the
+  filename + "Show in folder" (`report:reveal` → `shell.showItemInFolder`), and a
+  cancel is a silent no-op. The PDF is NOT a snapshot of the open tab: the page
+  carries a print-only `#rPrint` block holding a title block + Summary + Transcript,
+  and `@media print` hides the chrome and the tab view and shows that instead, so
+  the file is always the whole report (`break-before: page` between the two parts,
+  `break-inside: avoid` on sections and transcript rows).
+- **Leaving is "← Back", not a ✕**, and it sits on the LEFT of the title bar:
+  the report is in FRONT of the app, so closing it returns you to Confero — and
+  an in-page ✕ at top-right was one pixel-row away from the OS close button.
+  Esc still does the same thing. The title-bar actions (Regenerate · Copy summary ·
+  Download PDF) are one visual family — same white fill, same height; the primary
+  one is marked by its BORDER and label colour, never a solid block, and the
+  transient confirmations (copied / saved) colour the border and label green too.
+- A 10px **"AI-generated content may be incorrect."** sits in the window's
+  bottom-left corner (outside `.ask-inner`, or the 860px column would drag it to
+  the middle) and a fuller version closes the Summary part of the PDF.
+- **Overlay stands down** (`setAlwaysOnTop(false)`) while the report is open and
+  goes back up when it closes — the overlay is always-on-top by design and would
+  otherwise float over a maximized report.
+- The shape-repair parser moved out of renderer.js into
+  `src/renderer/summaryFormat.js` (`normalizeSummary` + a new `parseSummary`
+  returning sections/blocks), shared by both windows: the overlay still emits its
+  `.eb-*` spans for past sessions, the report window emits real `<h2>`/`<ul>`.
+  Those `.eb-*` rules were scoped to `.end-body` and are now `.session-viewer`, so
+  a saved summary is finally styled in the viewer too.
+Verified via CDP end-to-end against a live backend: real End click with a seeded
+transcript → window opens with 9 transcript rows while the skeleton shows → 4
+headings / 7 bullets → "Saved to Past sessions"; overlay alwaysOnTop false during
+and true after close; Regenerate (live) rewrote the archive file; Ask answered 3
+questions grounded (incl. refusing one the transcript couldn't support); copy with
+REAL trusted clicks read back off the OS clipboard (summary keeps its newlines,
+transcript keeps its ─ rule and · separators); past-sessions "Open full report";
+640px-wide layout stacks with no horizontal scroll. PDF verified by stubbing
+`dialog.showSaveDialog` from the main-process inspector and clicking for real:
+101KB / 4-page `%PDF-1.4` on disk, toast + "Show in folder", cancel is a no-op,
+and the print layout checked with `Emulation.setEmulatedMedia({media:'print'})`
+(chrome hidden, title block + both parts, 4 summary headings + 16 transcript
+rows). Note the PDF's own bytes weren't text-extracted — Chromium subsets its
+fonts — so the print-media DOM render is the evidence for content.
+CDP note for future runs: `createReportWindow` REUSES an open window, so a CSS/JS
+change needs `Page.reload({ignoreCache:true})` or the old stylesheet is what you
+screenshot. The main process has no `require` in its inspector context — use
+`process.getBuiltinModule('module').createRequire('D:/confero-main/package.json')`,
+and match the drive-letter CASE or you get a second module-cache entry and your
+`appState` writes land in a copy nobody reads.
+
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
    append in `getSystemPrompt`, add a small settings field targeting the active mode.
