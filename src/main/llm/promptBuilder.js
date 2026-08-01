@@ -172,7 +172,56 @@ function candidateNotesBlock(candidateNotes) {
 // plus the natural next turns, rendered as labeled bullets. One call means the
 // lead and the rest can never disagree (they used to be two calls that guessed
 // a mis-heard term independently and contradicted each other).
-function buildAnswerPrompt({ question, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA, typedAsk }) {
+// "What am I answering" has three possible sources, and the prompt may only ever
+// carry one — so they live together here:
+//   refine   — a line I typed about the answer already on screen ("shorter")
+//   question — a question I typed myself
+//   spoken   — the usual case: a stretch of their speech off the live transcript
+//
+// The spoken case is not a tidy one-liner. It's everything they said since the
+// last answer, so it carries preamble, a self-correction and sometimes two asks
+// in a row. Without saying that explicitly, weak models answer the FIRST sentence
+// they see — which is usually the throat-clearing.
+function askedBlock({ question, rawSpeech, typedKind }) {
+  if (typedKind === 'refine') {
+    return `I typed this to you privately — the other person did NOT say it. It is an instruction about the answer already on my screen:
+"${question}"
+
+Give me that SAME answer again, reworked exactly as I asked. Keep every fact and all of the substance — change only what I asked you to change. Do not treat my instruction as a question to answer, and do not move to a new topic. Apply it INSIDE the block structure below: that structure is what my screen renders, so never abandon it.`;
+  }
+  if (typedKind === 'question') {
+    return `I typed this question to you privately — the other person did NOT say it:
+"${question}"
+
+Answer it directly, using the conversation and my background above. It is my own question, not theirs, so answer what I actually asked.`;
+  }
+  if (!rawSpeech) return `They just asked: "${question}"`;
+  return `Everything they have said since my last answer, straight off the live transcript:
+"${question}"
+
+That is raw speech: it may run several sentences, wander, restate itself, or open
+with context before the actual ask. Work out what they are really asking me and
+answer THAT — not the preamble.
+
+Interviewers routinely stack two or three asks into one breath ("what did you
+build, how did you test it, and what would you change?"). Identify EVERY distinct
+thing they asked and answer ALL of them — nothing may be skipped, merged away, or
+left for me to bring up later. The only things to ignore are the throat-clearing
+and the asides that ask nothing. If they only made statements and never asked
+anything, respond to the point they were making.`;
+}
+
+// When the asks could be separated locally (splitAsks), the model is handed the
+// list instead of being asked to find and count them. One flat rule — a block
+// per number — is something even the weakest fallback model follows; "work out
+// how many they asked, then choose a format" is not (observed: it answered the
+// first and padded the rest with the template's own example labels).
+function asksList(asks) {
+  const list = asks.map((a, i) => `${i + 1}. ${a}`).join('\n');
+  return `\nThey asked ${asks.length} separate things:\n${list}\n\nAnswer EVERY one of them. Block 1 answers question 1, block 2 answers question 2, and so on, in that order. Do not stop after the first. Do not merge two of them into one block. Do not spend a block on a follow-up or a stronger version until all ${asks.length} have their own.\n`;
+}
+
+function buildAnswerPrompt({ question, rawSpeech, asks, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA, typedAsk }) {
   const lines = (transcriptWindow || [])
     .map((t) => `[${t.source === 'system' ? 'Interviewer' : 'Me'}] ${t.text}`)
     .join('\n');
@@ -183,22 +232,28 @@ function buildAnswerPrompt({ question, transcriptWindow, candidateNotes, modeCon
   // model, so it only ever gets one job. With nothing on screen yet there's
   // nothing to rework, so everything is a question.
   const typedKind = typedAsk ? (prevQA ? classifyTypedAsk(question) : 'question') : null;
-  const ask = typedKind === 'refine'
-    ? `I typed this to you privately — the other person did NOT say it. It is an instruction about the answer already on my screen:
-"${question}"
+  // Enumerating the asks only applies to captured SPEECH. A typed line is
+  // already exactly one question, and a refine has to keep the shape of the
+  // answer it is reworking.
+  const multi = !typedKind && Array.isArray(asks) && asks.length > 1;
 
-Give me that SAME answer again, reworked exactly as I asked. Keep every fact and all of the substance — change only what I asked you to change. Do not treat my instruction as a question to answer, and do not move to a new topic. Apply it INSIDE the block structure below: that structure is what my screen renders, so never abandon it.`
-    : typedKind === 'question'
-      ? `I typed this question to you privately — the other person did NOT say it:
-"${question}"
-
-Answer it directly, using the conversation and my background above. It is my own question, not theirs, so answer what I actually asked.`
-      : `They just asked: "${question}"`;
-  return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${threadClause(prevQA, typedKind)}${convo}${ask}
-
-Give me what to say, as 3 or 4 labeled blocks. The FIRST block is the main answer to say right now; the rest cover the natural follow-up, a stronger version, or how to go deeper if pushed. Format each block as exactly two lines:
+  // Two different jobs, so two different specs — never a rule the model has to
+  // pick between. Note the label EXAMPLES differ too: weak models copy them
+  // verbatim, which is how a three-question ask came back as
+  // "Say this / My role / Stronger version / If they push deeper".
+  const blockSpec = multi
+    ? `Give me exactly ${asks.length} blocks — one per numbered question above, in that order. Name each block after the question it answers. Format each block as exactly two lines:
+LABEL: a short cue of 2 to 6 words naming that question — e.g. "What SOLID is", "How we tested it", "What I'd change"
+SAY: the exact words to speak for THAT question — specific, grounded ONLY in my background above, one to three short sentences`
+    : `Give me what to say, as 3 or 4 labeled blocks. The FIRST block is the main answer to say right now; the rest cover the natural follow-up, a stronger version, or how to go deeper if pushed. Format each block as exactly two lines:
 LABEL: a short cue of 2 to 6 words — e.g. "Say this", "My role", "Stronger version", "If they push deeper"
-SAY: the exact words to speak — specific, grounded ONLY in my background above, one to three short sentences
+SAY: the exact words to speak — specific, grounded ONLY in my background above, one to three short sentences`;
+
+  return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${threadClause(prevQA, typedKind)}${convo}${askedBlock({ question, rawSpeech, typedKind })}
+${multi ? asksList(asks) : ''}
+${blockSpec}
+
+Never leave any part of what they asked unanswered — a half-answered multi-part question is worse than a brief one. If space is tight, make each SAY shorter rather than dropping a part.
 
 ${SPOKEN_STYLE}
 
@@ -210,7 +265,7 @@ If a name in the question looks garbled or mis-transcribed, silently use the clo
 // LABEL:/SAY: structure or the spoken style here; the mode's systemPrompt owns the
 // format (lowercase scratchpad, terse names, one ```code``` block, complexity note
 // / design talking points + a "say:" line).
-function buildCodeAnswerPrompt({ question, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA, anchoredProblem, typedAsk }) {
+function buildCodeAnswerPrompt({ question, rawSpeech, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA, anchoredProblem, typedAsk }) {
   const lines = (transcriptWindow || [])
     .map((t) => `[${t.source === 'system' ? 'Interviewer' : 'Me'}] ${t.text}`)
     .join('\n');
@@ -224,9 +279,15 @@ function buildCodeAnswerPrompt({ question, transcriptWindow, candidateNotes, mod
   // A typed turn is me talking to you, not the interviewer — same anchored
   // problem, but the instruction is mine ("just the complexity", "in Java").
   const now = typedAsk ? `What I'm asking you for right now (I typed this — they did not say it)` : `What they're asking me to do right now`;
+  // Same raw-speech framing as the spoken prompt: with an anchored problem the
+  // stretch is an instruction ABOUT it, without one it has to be read for the
+  // problem itself. Never set for a typed turn — that text is already the ask.
+  const rawNote = rawSpeech && !typedAsk
+    ? '\nThat is raw speech off the live transcript — several sentences, possibly with preamble or a restatement. Read it for what they actually want done, and ignore the throat-clearing.\n'
+    : '';
   const anchor = hasAnchor
-    ? `The problem on the screen (fixed for this round):\n"${anchoredProblem.trim()}"\n\n${now}:\n"${question}"\n\n`
-    : `The problem / question on the table: "${question}"\n\n`;
+    ? `The problem on the screen (fixed for this round):\n"${anchoredProblem.trim()}"\n\n${now}:\n"${question}"\n${rawNote}\n`
+    : `The problem / question on the table: "${question}"\n${rawNote}\n`;
   return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${prev}${convo}${anchor}Feed me the scratchpad now, exactly in your internal-monologue style.
 
 DEFAULT (do this unless the turn explicitly asks for something narrower): a couple of rough lines naming the pattern and approach, THEN the core solution in ONE fenced \`\`\`code block, THEN one line on time and space complexity. For a system / LLD design problem instead give 3-4 rough talking points and end with a "say:" line.

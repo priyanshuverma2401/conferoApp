@@ -16,11 +16,20 @@ const config = require('../config');
 // frequency_penalty discourages small models from spiraling into a repeated-
 // phrase loop when they're uncertain (observed: llama-3.1-8b-instant repeating
 // "called Penetration testing tool" dozens of times on an ambiguous question).
-const CHAT_OPTS = { max_tokens: 300, temperature: 0.3, frequency_penalty: 0.4 };
-// A hung/down provider fails this fast, then failover kicks in. 8s, not 15:
+// max_tokens is a CEILING, not a target — a one-part answer still stops at its
+// natural end, so raising it costs nothing there. 300 was silently truncating
+// the multi-part case: an interviewer who stacks three asks into one breath
+// ("what did you build, how did you test it, what would you change?") needs a
+// block each, and four LABEL/SAY pairs already crowd 300 tokens. The answer came
+// back cut off mid-block, which reads as "it ignored the rest of my question".
+const CHAT_OPTS = { max_tokens: 550, temperature: 0.3, frequency_penalty: 0.4 };
+// A hung/down provider fails this fast, then failover kicks in. Was 8s, not 15:
 // in a live conversation a stalled answer is a dead answer — observed a hung
 // primary pin the user at "Thinking..." for the full 15s before failing over.
-const REQUEST_TIMEOUT_MS = 8000;
+// Nudged to 11s alongside the wider token ceiling, since a genuine three-part
+// answer needs longer to generate than a one-liner and was being aborted for
+// being thorough. Still well short of the old 15s stall.
+const REQUEST_TIMEOUT_MS = 11000;
 
 // ── Per-task generation profiles ─────────────────────────────────────────────
 // A live answer and an end-of-session summary are different jobs. The live
@@ -90,19 +99,39 @@ function stripPreamble(text) {
 // window across the output, and the moment a window repeats one already seen,
 // the text has started looping — cut it there (backing up to the nearest
 // sentence end nearby, for a clean result) rather than showing the loop.
+// Distance is what tells a LOOP apart from ordinary reuse. The old version cut
+// at any repeat anywhere in the answer, which quietly ate multi-part answers:
+// asked three things about one project, the model naturally says "moved the
+// billing service off the monolith" in block 1 and again in block 3, and
+// everything from block 3 on was deleted — indistinguishable, to the user, from
+// the model ignoring part of their question. A real spiral repeats itself
+// immediately, so only a repeat that lands NEAR its last occurrence counts, and
+// the window is 6 words rather than 5 (an exact 6-word coincidence is rarer).
+const LOOP_GRAM = 6;
+// A spiral says the same thing again within a sentence or two...
+const LOOP_TIGHT_WORDS = 20;
+// ...or, if its period is longer, it still keeps coming back. Ordinary reuse
+// across blocks happens twice, far apart — that is not a loop and must survive.
+const LOOP_MIN_HITS = 3;
+
 function stripRepetition(text) {
   const words = text.split(/\s+/);
-  const N = 5;
-  const seen = new Map();
-  for (let i = 0; i + N <= words.length; i++) {
-    const gram = words.slice(i, i + N).join(' ').toLowerCase();
-    if (seen.has(gram)) {
-      const cut = words.slice(0, i).join(' ');
-      const lastSentenceEnd = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('? '), cut.lastIndexOf('! '));
-      if (lastSentenceEnd > cut.length * 0.4) return cut.slice(0, lastSentenceEnd + 1).trim();
-      return `${cut.trim()}…`; // no clean sentence break nearby — mark it as trimmed, not broken
+  const seen = new Map(); // gram -> { hits, last }
+  for (let i = 0; i + LOOP_GRAM <= words.length; i++) {
+    const gram = words.slice(i, i + LOOP_GRAM).join(' ').toLowerCase();
+    const prev = seen.get(gram);
+    if (!prev) {
+      seen.set(gram, { hits: 1, last: i });
+      continue;
     }
-    seen.set(gram, i);
+    const tight = i - prev.last <= LOOP_TIGHT_WORDS;
+    prev.hits += 1;
+    prev.last = i;
+    if (!tight && prev.hits < LOOP_MIN_HITS) continue; // said twice, far apart — fine
+    const cut = words.slice(0, i).join(' ');
+    const lastSentenceEnd = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('? '), cut.lastIndexOf('! '));
+    if (lastSentenceEnd > cut.length * 0.4) return cut.slice(0, lastSentenceEnd + 1).trim();
+    return `${cut.trim()}…`; // no clean sentence break nearby — mark it as trimmed, not broken
   }
   return text;
 }
@@ -424,4 +453,6 @@ async function extractText(dataUrl) {
   throw new Error('No vision provider is configured.');
 }
 
-module.exports = { chat, PROVIDERS, extractText };
+// __stripRepetition is exported for tests only — it silently truncates answers
+// when it misfires, so it needs to be checkable without a live model call.
+module.exports = { chat, PROVIDERS, extractText, __stripRepetition: stripRepetition };
