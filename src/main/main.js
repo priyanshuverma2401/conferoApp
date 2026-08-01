@@ -22,6 +22,7 @@ const promptBuilder = require('./llm/promptBuilder');
 const appState = require('./state/appState');
 const sessionsArchive = require('./state/sessionsArchive');
 const qaLog = require('./state/qaLog');
+const { createAskBuffer, overlapRatio } = require('./state/askBuffer');
 
 const SUGGESTION_WINDOW_MS = 90 * 1000;
 const GUARDRAIL_INTERVAL_MS = 15 * 1000;
@@ -309,42 +310,13 @@ function startMainApp() {
     lastSuggestedAt = Math.max(lastSuggestedAt, latest);
   };
 
-  // ── End-of-turn settle window ─────────────────────────────────────────────
-  // Interviewers pause mid-question, so answering the instant a question-shaped
-  // utterance lands means answering half a question (observed live). Instead:
-  // wait a short settle window — more of their speech within it merges into the
-  // question and re-arms the timer — and if they keep talking right after we
-  // fired, abort and re-answer the merged whole.
-  // Answers are MANUAL: detecting a question no longer fires one. The candidate
-  // presses "Answer now" (or the hotkey) when they actually want it. Auto-firing
-  // burned quota on rhetorical asides and small talk, and put an answer on screen
-  // at moments the candidate was mid-sentence and couldn't use it. Detection all
-  // still runs — the settle window below still merges a split question — it just
-  // parks the result instead of spending a model call on it.
-  const MANUAL_ANSWERS_ONLY = true;
-  const QUESTION_SETTLE_MS = 1300;
-  // Generous on purpose: their part-2 utterance must survive ~2s of speech plus
-  // ~2-3s of transcription before it can arrive (measured live — 5s missed it).
-  const CONTINUATION_WINDOW_MS = 10000;
-  let pendingQuestion = null; // { text, timer } — still merging further speech
-  // The finished question, waiting for the candidate to ask for an answer. Kept
-  // separate from pendingQuestion so further interviewer speech starts a NEW
-  // question instead of being glued onto this one forever (with nothing firing,
-  // an always-open pendingQuestion would grow into the whole interview).
-  let settledQuestion = null; // { text, at }
-  let lastFired = null; // { text, at }
-
-  // When testing on speakers (or echoey calls), the mic hears the same words
-  // the system stream already delivered — appending both duplicates the
-  // question. Skip merging text that's mostly already in the pending ask.
-  function overlapRatio(haystack, candidate) {
-    const have = new Set(haystack.toLowerCase().split(/\W+/).filter((w) => w.length >= 3));
-    const words = candidate.toLowerCase().split(/\W+/).filter((w) => w.length >= 3);
-    if (!words.length) return 1;
-    let hits = 0;
-    for (const w of words) if (have.has(w)) hits++;
-    return hits / words.length;
-  }
+  // ── Ask buffer: the CLICK is the question boundary ────────────────────────
+  // Everything the interviewer says accumulates here; "Answer now" takes the lot
+  // as the question and clears it, so the next utterance starts question N+1.
+  // The rationale (and what this replaced) is in state/askBuffer.js. The closed
+  // question + its answer stay in appState.lastQA, so a follow-up is answered
+  // against what was already said (threadClause), alongside candidateNotes().
+  const askBuffer = createAskBuffer();
 
   // Speaker attribution is by audio stream (system = interviewer, mic = candidate),
   // which is clean on headphones. On SPEAKERS the mic also picks up the
@@ -357,44 +329,11 @@ function startMainApp() {
     return recentThem.some((t) => overlapRatio(t.text, text) >= 0.6);
   }
 
-  function queueQuestion(text) {
-    if (pendingQuestion) {
-      clearTimeout(pendingQuestion.timer);
-      if (overlapRatio(pendingQuestion.text, text) < 0.7) {
-        pendingQuestion.text = `${pendingQuestion.text} ${text}`.trim();
-      } // else: duplicate phrasing — just re-arm the settle timer
-    } else {
-      pendingQuestion = { text: text.trim(), queuedAt: Date.now() };
-    }
-    send('answer:listening', { question: pendingQuestion.text });
-    pendingQuestion.timer = setTimeout(() => {
-      const q = pendingQuestion.text;
-      const waitedMs = Date.now() - (pendingQuestion.queuedAt || Date.now());
-      pendingQuestion = null;
-      if (MANUAL_ANSWERS_ONLY) {
-        // Question is complete — park it and wait. No model call until asked.
-        settledQuestion = { text: q, at: Date.now() };
-        qaLog.log('question_settled', { question: qaLog.preview(q), settledMs: waitedMs, manual: true });
-        return;
-      }
-      lastFired = { text: q, at: Date.now() };
-      qaLog.log('question_fired', { question: qaLog.preview(q), settledMs: waitedMs });
-      runAnswerPipeline(q);
-    }, QUESTION_SETTLE_MS);
-  }
-
+  // isQuestion no longer gates anything — it only tints the UI hint and the QA
+  // log. The buffer keeps every line, because a question routinely arrives
+  // wrapped in context the old gate threw away.
   function onThemUtterance(text, isQuestion) {
-    if (pendingQuestion) {
-      queueQuestion(text); // still forming the ask — merge whatever follows
-      return;
-    }
-    if (lastFired && Date.now() - lastFired.at < CONTINUATION_WINDOW_MS) {
-      // They kept talking right after we fired — the question wasn't done.
-      // Re-answer the merged whole; the generation counter retires the old run.
-      queueQuestion(`${lastFired.text} ${text}`);
-      return;
-    }
-    if (isQuestion) queueQuestion(text);
+    if (askBuffer.push(text)) send('answer:listening', { question: askBuffer.text(), isQuestion });
   }
 
   // ── Question-triggered answer pipeline ────────────────────────────────────
@@ -407,7 +346,10 @@ function startMainApp() {
   // tier quota is the real bottleneck). Up-next stays a separate best-effort
   // call. A newer question retires an older run via the generation counter.
   let pipelineGeneration = 0;
-  async function runAnswerPipeline(questionText) {
+  // `rawSpeech` says questionText is a captured STRETCH of the interviewer
+  // talking rather than a tidy one-line question, so the prompt asks the model
+  // to find the actual ask inside it.
+  async function runAnswerPipeline(questionText, { rawSpeech = false } = {}) {
     const gen = ++pipelineGeneration;
     const modeContext = activeModeContext();
     const documentContext = docSummary();
@@ -447,6 +389,7 @@ function startMainApp() {
     try {
       const promptArgs = {
         question: questionText,
+        rawSpeech,
         transcriptWindow: recentWindow(),
         // What the candidate already told the interviewer earlier this session —
         // so a follow-up on a project/tool they mentioned several questions ago is
@@ -518,18 +461,16 @@ function startMainApp() {
     } catch (_) { /* best-effort only */ }
   }
 
-  // Manual trigger ("Answer now" button or hotkey): the user's override — skip
-  // the settle window (they know the speaker is done), else answer the latest
-  // thing THEY said, falling back to the newest line in solo practice.
+  // Manual trigger ("Answer now" button or hotkey). This IS the question
+  // boundary: everything the interviewer has said since the last answer is the
+  // question, and pressing the button closes it so the next thing they say
+  // starts a fresh one.
   function triggerHelpNow() {
-    qaLog.log('help_now', { hasPending: !!pendingQuestion, hasSettled: !!settledQuestion });
-    if (pendingQuestion) {
-      clearTimeout(pendingQuestion.timer);
-      const q = pendingQuestion.text;
-      pendingQuestion = null;
-      settledQuestion = null;
-      lastFired = { text: q, at: Date.now() };
-      runAnswerPipeline(q);
+    const asked = askBuffer.text();
+    qaLog.log('help_now', { bufferedLines: askBuffer.size(), chars: asked.length });
+    if (asked) {
+      askBuffer.clear(); // question N is closed; N+1 starts with their next word
+      runAnswerPipeline(asked, { rawSpeech: true });
       return;
     }
     const lines = cleanTranscript();
@@ -537,22 +478,11 @@ function startMainApp() {
       send('answer:quick', { question: null, text: "Nothing captured yet — I'll help once the conversation starts.", ms: 0 });
       return;
     }
+    // Nothing new since the last answer — they're still on the same question, or
+    // the candidate wants another crack at it. Re-answer the last thing said.
     const lastThem = [...lines].reverse().find((t) => t.source === 'system');
-    // Prefer the settled question — it's the MERGED whole ("What's your experience
-    // with…" + "…with Kafka specifically?"), where the last transcript line is
-    // only the tail of it. Unless the interviewer has since moved on, in which
-    // case the newest thing they said is the thing to answer.
-    if (settledQuestion && (!lastThem || lastThem.timestamp <= settledQuestion.at)) {
-      const q = settledQuestion.text;
-      settledQuestion = null;
-      lastFired = { text: q, at: Date.now() };
-      runAnswerPipeline(q);
-      return;
-    }
     const target = lastThem || lines[lines.length - 1];
-    settledQuestion = null;
-    lastFired = { text: target.text, at: Date.now() };
-    runAnswerPipeline(target.text);
+    runAnswerPipeline(target.text, { rawSpeech: true });
   }
 
   // ── Audio → transcription → triggering ────────────────────────────────────
@@ -565,9 +495,7 @@ function startMainApp() {
       appState.recentAnswers = [];
       appState.sawSystemAudio = false;
       appState.sessionAnswers = [];
-      if (pendingQuestion) { clearTimeout(pendingQuestion.timer); pendingQuestion = null; }
-      settledQuestion = null;
-      lastFired = null;
+      askBuffer.clear();
       const s = userSettingsStore.getCachedSettings();
       qaLog.log('session_start', { mode: s.activeMode, forcedProvider: forcedProvider || 'auto', plan: appState.plan });
     },

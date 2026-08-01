@@ -128,15 +128,45 @@ function candidateNotesBlock(candidateNotes) {
 // plus the natural next turns, rendered as labeled bullets. One call means the
 // lead and the rest can never disagree (they used to be two calls that guessed
 // a mis-heard term independently and contradicted each other).
-function buildAnswerPrompt({ question, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA }) {
+// What the candidate pressed "Answer now" on is not a tidy one-line question —
+// it's everything the interviewer said since the last answer, verbatim off the
+// live transcript. That stretch normally carries preamble, a self-correction and
+// sometimes two asks in a row. Finding the real question inside it is a job the
+// model does far better than the timer that used to try, so we hand it the whole
+// thing and say so explicitly. Without this framing weak models answer the FIRST
+// sentence they see, which is usually the throat-clearing.
+function askedBlock({ question, rawSpeech }) {
+  if (!rawSpeech) return `They just asked: "${question}"`;
+  return `Everything they have said since my last answer, straight off the live transcript:
+"${question}"
+
+That is raw speech: it may run several sentences, wander, restate itself, or open
+with context before the actual ask. Work out what they are really asking me and
+answer THAT — not the preamble.
+
+Interviewers routinely stack two or three asks into one breath ("what did you
+build, how did you test it, and what would you change?"). Identify EVERY distinct
+thing they asked and answer ALL of them — nothing may be skipped, merged away, or
+left for me to bring up later. The only things to ignore are the throat-clearing
+and the asides that ask nothing. If they only made statements and never asked
+anything, respond to the point they were making.`;
+}
+
+function buildAnswerPrompt({ question, rawSpeech, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA }) {
   const lines = (transcriptWindow || [])
     .map((t) => `[${t.source === 'system' ? 'Interviewer' : 'Me'}] ${t.text}`)
     .join('\n');
   const convo = lines ? `Recent conversation ([Interviewer] = them, [Me] = what I said):\n${lines}\n\n` : '';
-  return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${threadClause(prevQA)}${convo}They just asked: "${question}"
+  return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${threadClause(prevQA)}${convo}${askedBlock({ question, rawSpeech })}
 
-Give me what to say, as 3 or 4 labeled blocks. The FIRST block is the main answer to say right now; the rest cover the natural follow-up, a stronger version, or how to go deeper if pushed. Format each block as exactly two lines:
-LABEL: a short cue of 2 to 6 words — e.g. "Say this", "My role", "Stronger version", "If they push deeper"
+Give me what to say as labeled blocks. First count how many distinct things they asked, then:
+- ONE thing asked → 3 or 4 blocks: the first is the answer to say right now, the rest cover the natural follow-up, a stronger version, or how to go deeper if pushed.
+- MORE THAN ONE thing asked → one block PER thing, in the order they asked them, and every one gets answered. Name each block after the part it answers ("The migration", "How we tested it", "What I'd change"). Only add follow-up or stronger-version blocks once every part already has its own.
+
+Never leave a part of what they asked unanswered — a half-answered multi-part question is worse than a brief one. If that means less room, make each SAY shorter rather than dropping a part.
+
+Format each block as exactly two lines:
+LABEL: a short cue of 2 to 6 words — e.g. "Say this", "My role", "How we tested it", "If they push deeper"
 SAY: the exact words to speak — specific, grounded ONLY in my background above, one to three short sentences
 
 ${SPOKEN_STYLE}
@@ -149,7 +179,7 @@ If a name in the question looks garbled or mis-transcribed, silently use the clo
 // LABEL:/SAY: structure or the spoken style here; the mode's systemPrompt owns the
 // format (lowercase scratchpad, terse names, one ```code``` block, complexity note
 // / design talking points + a "say:" line).
-function buildCodeAnswerPrompt({ question, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA, anchoredProblem }) {
+function buildCodeAnswerPrompt({ question, rawSpeech, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA, anchoredProblem }) {
   const lines = (transcriptWindow || [])
     .map((t) => `[${t.source === 'system' ? 'Interviewer' : 'Me'}] ${t.text}`)
     .join('\n');
@@ -160,9 +190,15 @@ function buildCodeAnswerPrompt({ question, transcriptWindow, candidateNotes, mod
   // about it ("walk me through the approach first", "dry run [3,1,2]", "make it
   // O(1) space"), NOT a fresh problem — so we frame them separately.
   const hasAnchor = anchoredProblem && anchoredProblem.trim() && anchoredProblem.trim() !== (question || '').trim();
+  // Same raw-speech framing as the spoken prompt: with an anchored problem the
+  // stretch is an instruction ABOUT it, without one it has to be read for the
+  // problem itself.
+  const rawNote = rawSpeech
+    ? '\nThat is raw speech off the live transcript — several sentences, possibly with preamble or a restatement. Read it for what they actually want done, and ignore the throat-clearing.\n'
+    : '';
   const anchor = hasAnchor
-    ? `The problem on the screen (fixed for this round):\n"${anchoredProblem.trim()}"\n\nWhat they're asking me to do right now:\n"${question}"\n\n`
-    : `The problem / question on the table: "${question}"\n\n`;
+    ? `The problem on the screen (fixed for this round):\n"${anchoredProblem.trim()}"\n\nWhat they're asking me to do right now:\n"${question}"\n${rawNote}\n`
+    : `The problem / question on the table: "${question}"\n${rawNote}\n`;
   return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${prev}${convo}${anchor}Feed me the scratchpad now, exactly in your internal-monologue style.
 
 DEFAULT (do this unless the turn explicitly asks for something narrower): a couple of rough lines naming the pattern and approach, THEN the core solution in ONE fenced \`\`\`code block, THEN one line on time and space complexity. For a system / LLD design problem instead give 3-4 rough talking points and end with a "say:" line.
