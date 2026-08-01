@@ -438,8 +438,11 @@ function startMainApp() {
   // guaranteed-consistent answer, and half the tokens per question (our free-
   // tier quota is the real bottleneck). Up-next stays a separate best-effort
   // call. A newer question retires an older run via the generation counter.
+  // `typed` = the question came from the ask bar (the user typed it) rather than
+  // from the microphone. Same pipeline, same rendering — only the framing of the
+  // prompt and a couple of downstream niceties differ.
   let pipelineGeneration = 0;
-  async function runAnswerPipeline(questionText) {
+  async function runAnswerPipeline(questionText, { typed = false } = {}) {
     const gen = ++pipelineGeneration;
     const modeContext = activeModeContext();
     const documentContext = docSummary();
@@ -458,7 +461,11 @@ function startMainApp() {
     // "dry run it" are all follow-ups on ONE anchored problem, so threading is a
     // correctness requirement here, not the premium follow-up surface. Exempt code
     // mode from the free-tier gate; the upsell still applies to spoken modes.
-    if (prevQA && appState.plan !== 'premium' && !isCode) {
+    // A TYPED ask is exempt for the same reason code mode is: half of what the
+    // ask bar is for ("shorter", "in bullet points", "go deeper on the second
+    // point") is meaningless without the answer it refers to. Stripping the
+    // thread there wouldn't limit the feature, it would break it.
+    if (prevQA && appState.plan !== 'premium' && !isCode && !typed) {
       if (appState.adaptiveUsed >= 1) {
         prevQA = null;
         adaptiveUpsell = true;
@@ -472,6 +479,7 @@ function startMainApp() {
     qaLog.log('answer_request', {
       gen, question: qaLog.preview(questionText), forcedProvider: forcedProvider || 'auto',
       hasDoc: !!documentContext, hasModeContext: !!modeContext, threadedFollowup: !!prevQA,
+      typed,
     });
 
     const t0 = Date.now();
@@ -491,6 +499,9 @@ function startMainApp() {
         // problem, not a fresh problem — carry the anchor so the model answers
         // "dry run it" / "make it O(1) space" against what's actually on screen.
         anchoredProblem: isCode ? appState.activeCodingProblem : null,
+        // Tells the prompt this line was TYPED by the user, so "in bullet points"
+        // is treated as an instruction to me, not as something to answer.
+        typedAsk: typed,
       };
       answer = await llmClient.getAnswer({
         systemPrompt: promptBuilder.getSystemPrompt(),
@@ -501,12 +512,14 @@ function startMainApp() {
       });
     } catch (err) {
       qaLog.log('answer_error', { gen, ms: Date.now() - t0, error: err.message, attempts: err.attempts });
-      if (gen === pipelineGeneration) send('app:error', { message: `Answer error: ${err.message}` });
-      return;
+      // A typed ask reports its own failure back to the ask bar (which puts the
+      // text back in the box) — a banner too would say the same thing twice.
+      if (gen === pipelineGeneration && !typed) send('app:error', { message: `Answer error: ${err.message}` });
+      return { error: err.message };
     }
     if (gen !== pipelineGeneration) {
       qaLog.log('answer_discarded', { gen, current: pipelineGeneration, provider: answer.provider, ms: Date.now() - t0 });
-      return; // a newer question took over
+      return { ok: true }; // a newer question took over
     }
     const answerText = answer.text;
     qaLog.log('answer_received', {
@@ -520,6 +533,7 @@ function startMainApp() {
     send('answer:ready', {
       question: questionText, text: answerText, ms: Date.now() - t0, adaptiveUpsell,
       provider: answer.provider, detail: answer.detail, format: isCode ? 'code' : 'speak',
+      origin: typed ? 'typed' : 'voice',
     });
 
     // Up next is a spoken follow-up prediction — skip it for code modes, where a
@@ -532,11 +546,16 @@ function startMainApp() {
       if (appState.activeCodingProblem) {
         send('code:answer', {
           question: questionText, text: answerText, ms: Date.now() - t0,
-          provider: answer.provider, detail: answer.detail, source: 'voice',
+          provider: answer.provider, detail: answer.detail, source: typed ? 'typed' : 'voice',
         });
       }
-      return;
+      return { ok: true };
     }
+
+    // "Up next" predicts what THEY will ask next off the back of what they just
+    // asked. A line I typed to myself isn't their turn, so there's nothing to
+    // predict from — skip it rather than guess.
+    if (typed) return { ok: true };
 
     // Up next — pure bonus; failures are silent and it never delays anything.
     try {
@@ -544,10 +563,11 @@ function startMainApp() {
         systemPrompt: 'You are a concise, realistic interview and meeting coach.',
         userPrompt: promptBuilder.buildUpNextPrompt({ question: questionText, answer: answerText, modeContext }),
       });
-      if (gen !== pipelineGeneration) return;
+      if (gen !== pipelineGeneration) return { ok: true };
       appState.sessionAnswers.push({ kind: 'upnext', text: upNextText, at: Date.now() });
       send('answer:upnext', { text: upNextText });
     } catch (_) { /* best-effort only */ }
+    return { ok: true };
   }
 
   // Manual trigger ("Answer now" button or hotkey): the user's override — skip
@@ -631,6 +651,22 @@ function startMainApp() {
   ipcMain.handle('assist:help-now', () => {
     triggerHelpNow();
     return { ok: true }; // results stream back via answer:* events
+  });
+
+  // Ask bar: a question the other person never asked, or an instruction about the
+  // answer already on screen ("in bullet points", "shorter", "more technical").
+  // Same pipeline as a spoken question so it renders in the same place, in the
+  // same format — awaited here only so a failure can be reported back into the
+  // box instead of losing what the user typed.
+  ipcMain.handle('assist:ask', async (_event, { text }) => {
+    const q = (text || '').trim();
+    if (!q) return { error: 'Type a question or an instruction first.' };
+    qaLog.log('typed_ask', { chars: q.length, question: qaLog.preview(q) });
+    // Deliberately does NOT touch `lastFired`: that's the spoken-question
+    // continuation window, and seeding it with typed text would glue "in bullet
+    // points" onto the front of whatever the other person says in the next 10s.
+    const res = await runAnswerPipeline(q, { typed: true });
+    return res || { ok: true };
   });
 
   // ── Code Assist workspace (DSA / LLD rounds) ──────────────────────────────
