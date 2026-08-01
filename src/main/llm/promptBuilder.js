@@ -102,8 +102,52 @@ const SPOKEN_STYLE = `Write exactly how a confident person talks out loud: contr
 
 // Adaptive follow-up threading: carrying the previous Q+A is what stops a
 // probing follow-up from getting a reworded repeat of the first answer.
-function threadClause(prevQA) {
+// ── Typed asks: is this a question, or an instruction about the last answer? ──
+// Asking the MODEL to decide was tried first and fails on weak models: given a
+// previous answer plus a "rework it" branch, llama-3.1-8b took "What should I
+// say about my biggest weakness?" as an instruction and handed back the previous
+// answer verbatim. The classification is cheap and mechanical, so we make it
+// here and hand the model exactly ONE job.
+//
+// FORM_WORDS is every word that can appear in a pure formatting request; a typed
+// line is a refine ONLY if it has a formatting cue and NOTHING outside this set
+// — one substantive word ("weakness", "CAP theorem") means it's a question about
+// that thing, however it's phrased.
+const FORM_WORDS = new Set(`a an the it that this is are be and or but not no of for to in into on as with
+  more less much very too just please keep make made give given say said write put use using redo again same
+  answer answers response reply one two three four five few some all my me i you your we us up down out go back
+  first second third last next other another point points bullet bullets list lists form format formatted
+  version style tone way ways word words line lines sentence sentences paragraph paragraphs step steps numbered
+  number short shorter shortest brief briefly concise long longer detail details detailed deep deeper expand
+  elaborate simple simpler simplify easy easier casual formal professional technical human natural summary
+  summarise summarize rewrite reword rephrase reformat restructure structure structured translate only plus
+  then now ok english hindi spanish french java python javascript typescript sql golang`.split(/\s+/));
+
+// At least one of these must appear, or it isn't a formatting request at all.
+const REFINE_CUE = /\b(short|shorter|brief|briefly|concise|long|longer|bullet|bullets|list|format|formatted|rewrite|reword|rephrase|reformat|redo|again|expand|elaborate|detail|detailed|deeper|simple|simpler|simplify|casual|formal|technical|tone|style|summary|summarise|summarize|numbered|paragraph|sentence|sentences|steps|translate|english|hindi|spanish|french|java|python|javascript|typescript|sql)\b/i;
+
+function classifyTypedAsk(text) {
+  const t = (text || '').trim();
+  if (!t) return 'question';
+  if (t.includes('?')) return 'question';          // a question mark settles it
+  const words = t.toLowerCase().match(/[a-z0-9+#']+/g) || [];
+  if (words.length > 12) return 'question';        // instructions are short
+  if (!REFINE_CUE.test(t)) return 'question';
+  return words.every((w) => FORM_WORDS.has(w)) ? 'refine' : 'question';
+}
+
+// `typedAsk` flips the meaning of the previous turn: for a spoken follow-up the
+// old answer is something to build PAST, but for a typed instruction ("shorter",
+// "in bullets") it's the very text being reworked — so the usual "never repeat
+// it" rule would tell the model to do the opposite of what was asked.
+function threadClause(prevQA, typedKind) {
   if (!prevQA) return '';
+  if (typedKind === 'refine') {
+    return `\nThe question on the table was: "${prevQA.question}"\nThe answer currently on my screen is: "${prevQA.answer}"\nThat text is what I want reworked below.\n`;
+  }
+  if (typedKind === 'question') {
+    return `\nFor context, the last answer on my screen was: "${prevQA.answer}"\nWhat I'm typing below is a NEW question — answer it on its own terms. Only reuse anything above if it genuinely helps answer it, and never hand the same answer back.\n`;
+  }
   return `\nEarlier they asked: "${prevQA.question}"\nThe answer already given was: "${prevQA.answer}"\nIf the new question probes the same topic, build on that answer and go one level deeper with specifics — never repeat or reword it. If it's a different topic, answer fresh.\n`;
 }
 
@@ -128,12 +172,29 @@ function candidateNotesBlock(candidateNotes) {
 // plus the natural next turns, rendered as labeled bullets. One call means the
 // lead and the rest can never disagree (they used to be two calls that guessed
 // a mis-heard term independently and contradicted each other).
-function buildAnswerPrompt({ question, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA }) {
+function buildAnswerPrompt({ question, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA, typedAsk }) {
   const lines = (transcriptWindow || [])
     .map((t) => `[${t.source === 'system' ? 'Interviewer' : 'Me'}] ${t.text}`)
     .join('\n');
   const convo = lines ? `Recent conversation ([Interviewer] = them, [Me] = what I said):\n${lines}\n\n` : '';
-  return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${threadClause(prevQA)}${convo}They just asked: "${question}"
+  // Typed asks come from ME, not from them — and they arrive in two shapes: a
+  // question of my own, or an instruction about the answer already on screen
+  // ("shorter", "in bullet points"). Which one it is is decided here, not by the
+  // model, so it only ever gets one job. With nothing on screen yet there's
+  // nothing to rework, so everything is a question.
+  const typedKind = typedAsk ? (prevQA ? classifyTypedAsk(question) : 'question') : null;
+  const ask = typedKind === 'refine'
+    ? `I typed this to you privately — the other person did NOT say it. It is an instruction about the answer already on my screen:
+"${question}"
+
+Give me that SAME answer again, reworked exactly as I asked. Keep every fact and all of the substance — change only what I asked you to change. Do not treat my instruction as a question to answer, and do not move to a new topic. Apply it INSIDE the block structure below: that structure is what my screen renders, so never abandon it.`
+    : typedKind === 'question'
+      ? `I typed this question to you privately — the other person did NOT say it:
+"${question}"
+
+Answer it directly, using the conversation and my background above. It is my own question, not theirs, so answer what I actually asked.`
+      : `They just asked: "${question}"`;
+  return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${threadClause(prevQA, typedKind)}${convo}${ask}
 
 Give me what to say, as 3 or 4 labeled blocks. The FIRST block is the main answer to say right now; the rest cover the natural follow-up, a stronger version, or how to go deeper if pushed. Format each block as exactly two lines:
 LABEL: a short cue of 2 to 6 words — e.g. "Say this", "My role", "Stronger version", "If they push deeper"
@@ -149,7 +210,7 @@ If a name in the question looks garbled or mis-transcribed, silently use the clo
 // LABEL:/SAY: structure or the spoken style here; the mode's systemPrompt owns the
 // format (lowercase scratchpad, terse names, one ```code``` block, complexity note
 // / design talking points + a "say:" line).
-function buildCodeAnswerPrompt({ question, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA, anchoredProblem }) {
+function buildCodeAnswerPrompt({ question, transcriptWindow, candidateNotes, modeContext, documentContext, prevQA, anchoredProblem, typedAsk }) {
   const lines = (transcriptWindow || [])
     .map((t) => `[${t.source === 'system' ? 'Interviewer' : 'Me'}] ${t.text}`)
     .join('\n');
@@ -160,8 +221,11 @@ function buildCodeAnswerPrompt({ question, transcriptWindow, candidateNotes, mod
   // about it ("walk me through the approach first", "dry run [3,1,2]", "make it
   // O(1) space"), NOT a fresh problem — so we frame them separately.
   const hasAnchor = anchoredProblem && anchoredProblem.trim() && anchoredProblem.trim() !== (question || '').trim();
+  // A typed turn is me talking to you, not the interviewer — same anchored
+  // problem, but the instruction is mine ("just the complexity", "in Java").
+  const now = typedAsk ? `What I'm asking you for right now (I typed this — they did not say it)` : `What they're asking me to do right now`;
   const anchor = hasAnchor
-    ? `The problem on the screen (fixed for this round):\n"${anchoredProblem.trim()}"\n\nWhat they're asking me to do right now:\n"${question}"\n\n`
+    ? `The problem on the screen (fixed for this round):\n"${anchoredProblem.trim()}"\n\n${now}:\n"${question}"\n\n`
     : `The problem / question on the table: "${question}"\n\n`;
   return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${prev}${convo}${anchor}Feed me the scratchpad now, exactly in your internal-monologue style.
 
@@ -312,6 +376,7 @@ module.exports = {
   buildRecapPrompt,
   buildAnswerPrompt,
   buildCodeAnswerPrompt,
+  classifyTypedAsk, // exported for testing the ask-bar routing
   buildUpNextPrompt,
   buildRephrasePrompt,
 };

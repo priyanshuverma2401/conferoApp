@@ -74,6 +74,9 @@ contextBridge.exposeInMainWorld('stealthAPI', {
   helpNow: () => ipcRenderer.invoke('assist:help-now'),
   recap: () => ipcRenderer.invoke('assist:recap'),
   rephrase: (text) => ipcRenderer.invoke('assist:rephrase', { text }),
+  // Ask bar: a typed question, or an instruction about the answer on screen.
+  // Runs the normal answer pipeline, so the result arrives via answer:* events.
+  ask: (text) => ipcRenderer.invoke('assist:ask', { text }),
 
   // Code Assist workspace (DSA / LLD)
   solveProblem: (problem, instruction) => ipcRenderer.invoke('assist:solve-problem', { problem, instruction }),

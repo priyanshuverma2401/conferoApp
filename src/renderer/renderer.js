@@ -228,10 +228,18 @@ function parseBeats(text) {
     else if (l && cue) { beats.push({ cue, line: l[1].trim() }); cue = null; }
   }
   if (beats.length) return beats;
-  // Inline fallbacks, most reliable first: our known labels, then any short
-  // Title-Case label + colon.
+  // Inline fallbacks, most reliable first: our known labels, the same labels
+  // sitting on their own line WITHOUT the colon (weak models drop the "LABEL:"
+  // scaffolding but keep the label words — observed live on llama-3.1-8b), then
+  // any short Title-Case label + colon.
   return (
     splitInline(text, new RegExp(`(${KNOWN_LABELS}):\\s*`, 'gi')) ||
+    splitInline(text, new RegExp(`(?:^|\\n)[ \\t]*(${KNOWN_LABELS})[ \\t]*:?[ \\t]*(?:\\r?\\n|$)`, 'gi')) ||
+    // Worst case seen live: the whole answer on ONE physical line, labels and
+    // all. Only split where a label starts a sentence AND the next word is
+    // capitalised — otherwise ordinary prose ("my role was to lead the fix")
+    // would be torn in half at its own words.
+    splitInline(text, new RegExp(`(?:^|(?<=[.!?])\\s+)(${KNOWN_LABELS})\\s+(?=[A-Z])`, 'g')) ||
     splitInline(text, /(?:^|[\s.,!?"])([A-Z][A-Za-z'’ -]{2,34}?):\s+/g)
   );
 }
@@ -380,7 +388,10 @@ window.stealthAPI.onAnswerQuick(({ text }) => {
 // One consistent structured answer (was two racing calls). Parses the optional
 // correction NOTE (shown as a chip, never spoken) + the labeled blocks, and
 // renders them as Cluely-style bullets with the spoken words in bold.
-function renderAnswer({ question, text, ms, adaptiveUpsell, provider, detail, format }) {
+function renderAnswer({ question, text, ms, adaptiveUpsell, provider, detail, format, origin }) {
+  // An ask-bar turn is MY question, not theirs — chip it so the scrollback
+  // doesn't later read as if the interviewer asked "in bullet points".
+  const typedChip = origin === 'typed' ? '<span class="qa-typed">You asked</span>' : '';
   resetHelpBtn();
   // Panel hidden: the answer still renders into the (hidden) pane, so all that's
   // needed is a dot on Ask saying there's something waiting behind it.
@@ -403,7 +414,7 @@ function renderAnswer({ question, text, ms, adaptiveUpsell, provider, detail, fo
   if (plan === 'pro') {
     stageShow();
     stageQ.classList.remove('listening');
-    stageQ.textContent = question || '';
+    stageQ.innerHTML = `${typedChip}${escapeHtml(question || '')}`;
     if (note) { stageNote.textContent = `🎯 ${note}`; stageNote.classList.remove('hidden'); }
     else stageNote.classList.add('hidden');
     stageAnswer.classList.remove('thinking');
@@ -430,7 +441,7 @@ function renderAnswer({ question, text, ms, adaptiveUpsell, provider, detail, fo
     suggestionsEmpty.style.display = 'none';
     const card = document.createElement('div');
     card.className = 'qa-card';
-    const qLine = question ? `<div class="qa-q">${escapeHtml(question)}</div>` : '';
+    const qLine = question ? `<div class="qa-q">${typedChip}${escapeHtml(question)}</div>` : '';
     const noteLine = note ? `<div class="qa-note">🎯 ${escapeHtml(note)}</div>` : '';
     card.innerHTML = `${qLine}${noteLine}<div class="ans-list">${answerHtml}</div>`;
     const foot = document.createElement('div');
@@ -1028,11 +1039,12 @@ if (shareHideBtn) {
 // look. Shown on Start, hidden on Stop, nothing in between.
 function measureBottomCluster() {
   // The pill hovers above whatever the topmost bottom control is. Measured, not
-  // hardcoded: the model bar only exists in test builds, and the action bar wraps
-  // to two rows in code modes.
-  const modelBar = document.getElementById('modelBar');
-  const first = modelBar && !modelBar.classList.contains('hidden')
-    ? modelBar
+  // hardcoded: the ask bar can be hidden, and the action bar wraps to two rows in
+  // code modes. (This used to measure the test-only model bar that sat here
+  // before the ask bar replaced it — left unmeasured, the pill covers the ask box.)
+  const askBar = document.getElementById('askBar');
+  const first = askBar && !askBar.classList.contains('hidden')
+    ? askBar
     : document.querySelector('.action-bar');
   if (!first) return;
   const px = Math.round(appEl.getBoundingClientRect().bottom - first.getBoundingClientRect().top);
@@ -1207,22 +1219,50 @@ hbToggle.addEventListener('click', () => setUiHidden(!uiHidden));
   apply();
 })();
 
-// ── Testing model picker (only in testing builds; hidden in production) ──
-if (SHOW_MODEL_BADGE) {
-  const modelBar = document.getElementById('modelBar');
-  const modelPicker = document.getElementById('modelPicker');
-  if (modelBar && modelPicker) {
-    const saved = localStorage.getItem('confero.testModel') || '';
-    modelPicker.value = saved;
-    window.stealthAPI.setModel(saved);
-    modelBar.classList.remove('hidden');
-    modelPicker.addEventListener('change', () => {
-      localStorage.setItem('confero.testModel', modelPicker.value);
-      window.stealthAPI.setModel(modelPicker.value);
-      const label = modelPicker.options[modelPicker.selectedIndex].text;
-      showNote(modelPicker.value ? `Next answers use: ${label}` : 'Model: auto (best available)');
-    });
+// ── Ask bar: the typed lane into the answer pipeline ──────────────────────────
+// Sits where the testing model picker used to. It covers the two things voice
+// can't: asking something the other person never said, and reshaping the answer
+// that's already on screen ("in bullet points", "shorter", "more technical").
+// It goes through the SAME pipeline as a spoken question, so the result renders
+// in the same place, in the same format — this is a second way in, not a second
+// kind of answer.
+const askInput = document.getElementById('askInput');
+const askSend = document.getElementById('askSend');
+if (askInput && askSend) {
+  let askBusy = false;
+  const syncAskBtn = () => { askSend.disabled = askBusy || !askInput.value.trim(); };
+
+  async function submitAsk() {
+    const text = askInput.value.trim();
+    if (!text || askBusy) return;
+    askBusy = true;
+    syncAskBtn();
+    askInput.disabled = true;
+    // Clear immediately: the answer lands in the feed/stage, and a still-full box
+    // reads as "it didn't send" while the model is thinking.
+    askInput.value = '';
+    try {
+      const res = await window.stealthAPI.ask(text);
+      if (res && res.error) {
+        showError(res.error);
+        askInput.value = text; // hand the text back rather than making them retype it
+      }
+    } catch (err) {
+      showError(err.message);
+      askInput.value = text;
+    } finally {
+      askBusy = false;
+      askInput.disabled = false;
+      syncAskBtn();
+    }
   }
+
+  askInput.addEventListener('input', syncAskBtn);
+  askInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitAsk(); }
+  });
+  askSend.addEventListener('click', submitAsk);
+  syncAskBtn();
 }
 
 updateClearVisibility();

@@ -335,6 +335,41 @@ each); dragged to 1400,500 then expanded → clamped to x=1100 y=96, fully
 on-screen. The dock tip was reworded (it told users to drag under the webcam;
 the window now opens there).
 
+**Ask bar (replaced the test-model picker):** the strip above the action bar was a
+testing-only model dropdown (`#modelBar`/`#modelPicker`, gated on
+`SHOW_MODEL_BADGE`) — dead weight for a customer. It's now `#askBar`: a text
+input + "Ask" button that is the TYPED lane into the same answer pipeline. Two
+jobs on one line — ask something the other person never said, or reshape the
+answer already on screen ("in bullet points", "shorter", "more technical").
+Wiring: `assist:ask` IPC → `runAnswerPipeline(text, { typed: true })`, so the
+result renders through the normal `answer:pending`/`answer:ready` path, in the
+same card and format as a spoken answer. Enter or the button sends; the box locks
+while in flight and hands the text BACK on error (typed failures skip the
+`app:error` banner so it isn't reported twice). It deliberately does NOT touch
+`lastFired` — that's the spoken-question continuation window, and seeding it with
+typed text would glue "in bullet points" onto the front of whatever the
+interviewer says in the next 10s. Up-next is skipped for typed turns (a line I
+typed isn't their turn to predict from). Typed asks are EXEMPT from the free-tier
+follow-up gate for the same reason code mode is — half of what the box is for is
+meaningless without the answer it refers to.
+**Question vs instruction is classified in code, not by the model:**
+`classifyTypedAsk()` in promptBuilder (question mark, >12 words, or any word
+outside `FORM_WORDS` ⇒ question; a `REFINE_CUE` word and nothing substantive ⇒
+refine). Asking the MODEL to decide was tried first and llama-3.1-8b failed it
+live — "What should I say about my biggest weakness?" came back as the PREVIOUS
+answer verbatim. `buildAnswerPrompt` now emits one branch only, and
+`threadClause` flips with it (refine: "that text is what I want reworked";
+question: "answer it on its own terms, never hand the same answer back").
+**Renderer parse hardened while here:** `parseBeats` gained two fallbacks for
+weak-model output — known labels on their own line WITHOUT the colon, and (last
+resort) labels inline on one physical line, guarded to only split at a sentence
+boundary followed by a capital so prose like "my role was to trace it" is never
+torn in half. Verified: 28/28 classifier cases, 6/6 parse shapes (incl. the
+false-positive guard), and live via CDP against the Render backend — typed
+question → real answer, "make it shorter and less formal" → same answer
+reworked, then a NEW question answered fresh; in-flight lock, Ask-button click
+path, and the empty-ask guard all confirmed.
+
 Next up / open:
 1. Per-mode prompt editing — store `modeInstructions[modeId]` in user settings,
    append in `getSystemPrompt`, add a small settings field targeting the active mode.

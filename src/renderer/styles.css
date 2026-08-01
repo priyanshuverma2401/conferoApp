@@ -346,7 +346,7 @@ body.collapsed .hb-ic-expand { display: block; }
      label onto two lines — a second row reads far better than a broken button. */
   flex-wrap: wrap; row-gap: 7px;
 }
-/* The bottom cluster (model bar + actions) is PINNED to the bottom of the window.
+/* The bottom cluster (ask bar + actions) is PINNED to the bottom of the window.
    Without this, pressing Start made the whole UI jump upward: focus mode hides
    both panes, and until the first answer arrives the answer stage is hidden too,
    so no flex child was left to absorb the free space — every row collapsed to the
@@ -354,14 +354,14 @@ body.collapsed .hb-ic-expand { display: block; }
    above the controls instead, so the buttons stay exactly where the user last saw
    them. When a pane IS growing (idle, peek, free-plan) there is no spare space
    and the auto margin resolves to 0, so those layouts are untouched.
-   Two rules because the model bar is testing-only: when it's display:none it has
-   no margin to give and the action bar takes over. `~` not `+` — the Answer-now
-   row sits between them in the DOM but is position:absolute, so it is not a flex
-   item at all and an auto margin on IT would do nothing. (That was the trap this
-   merge exposed: a `+ .quick-row` chain looks right and silently leaves the bar
-   unpinned in production builds, where the model bar is hidden.) */
-.model-bar { margin-top: auto; }
-.model-bar.hidden ~ .action-bar { margin-top: auto; }
+   Two rules, so the pin survives the ask bar ever being hidden: with display:none
+   it has no margin to give and the action bar takes over. `~` not `+` — the
+   Answer-now row sits between them in the DOM but is position:absolute, so it is
+   not a flex item at all and an auto margin on IT would do nothing. (That was the
+   trap this merge exposed: a `+ .quick-row` chain looks right and silently leaves
+   the bar unpinned whenever the row above it is hidden.) */
+.ask-bar { margin-top: auto; }
+.ask-bar.hidden ~ .action-bar { margin-top: auto; }
 /* flex:1 (not width:100%) so the Clear button sits BESIDE these, not shoved off
    the right edge of the row. */
 /* Stays on ONE line as a unit — answer/recap/stop belong together. When the row
@@ -625,22 +625,42 @@ body.collapsed .hb-ic-expand { display: block; }
 .stage-model.m-cohere { background: rgba(120,220,200,0.18); color: #8fe6d4; }
 
 /* Testing model picker */
-.model-bar {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 12px; border-top: 1px solid var(--border);
-  background: rgba(93,169,233,0.05);
+/* Ask bar: one quiet input row between the reading surface and the action bar.
+   Deliberately understated — it must never compete with the answer for the eye
+   mid-call, so no accent fill and no border-top of its own colour; the focus
+   ring is the only thing that lights up, and only while typing. */
+.ask-bar {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 12px; border-top: 1px solid var(--border);
+  background: rgba(255,255,255,0.015);
 }
-.model-bar.hidden { display: none; }
-.mb-label { font-size: 10.5px; font-weight: 650; color: var(--text-muted); flex-shrink: 0; }
-.mb-select {
-  -webkit-app-region: no-drag; flex: 1;
+.ask-bar.hidden { display: none; }
+.ask-input {
+  -webkit-app-region: no-drag; flex: 1; min-width: 0;
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-  font-size: 11.5px; font-family: inherit; padding: 4px 8px; border-radius: var(--radius-sm);
-  cursor: pointer;
+  font-size: 12px; font-family: inherit; line-height: 1.4;
+  padding: 7px 10px; border-radius: var(--radius-sm);
+  transition: var(--t);
 }
-.mb-select:focus { outline: none; border-color: var(--accent); }
-/* Native dropdown options render dark-on-dark by default — force readable colours. */
-.mb-select option { background-color: var(--select-bg); color: var(--text); }
+.ask-input::placeholder { color: var(--text-muted); opacity: 0.85; }
+.ask-input:focus {
+  outline: none; border-color: var(--accent);
+  background: var(--surface); box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.ask-input:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Send is enabled only once there's something to send — a dead button that
+   still looks live is how you get someone tapping it mid-interview. */
+.ask-send {
+  -webkit-app-region: no-drag; flex-shrink: 0;
+  display: flex; align-items: center; gap: 5px;
+  padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--text-muted);
+  font-size: 11.5px; font-weight: 650; font-family: inherit; white-space: nowrap;
+  cursor: pointer; transition: var(--t);
+}
+.ask-send:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.ask-send:not(:disabled):hover { background: var(--accent); color: #0d1116; }
+.ask-send:disabled { cursor: default; opacity: 0.55; }
 
 .stage-note { font-size: 10.5px; color: var(--text-muted); margin: 2px 0 6px; }
 .stage-note.hidden { display: none; }
@@ -780,6 +800,13 @@ body.collapsed .hb-ic-expand { display: block; }
   font-size: calc(var(--answer-size, 15px) - 3px); font-weight: 620;
   line-height: 1.45; color: var(--question-color, #7cc4ff);
   margin-bottom: 14px;
+}
+/* This card came from the ask bar, not from something the other person said —
+   labelled so scrollback never reads as if they asked it. */
+.qa-typed {
+  display: inline-block; vertical-align: middle; margin-right: 7px; padding: 1px 6px;
+  border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-size: 9px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
 }
 .qa-note { font-size: 10.5px; color: var(--text-muted); margin: -6px 0 12px; }
 .qa-card .ans-list { display: flex; flex-direction: column; gap: 11px; }
@@ -1016,7 +1043,7 @@ body.collapsed .hb-ic-expand { display: block; }
 
 /* The header, model bar and action bar must NEVER be squeezed out of the fixed
    window — they carry Start / Answer now / Recap / Stop / Clear. */
-.header, .model-bar, .action-bar { flex-shrink: 0; }
+.header, .ask-bar, .action-bar { flex-shrink: 0; }
 
 .ticker {
   -webkit-app-region: no-drag;
