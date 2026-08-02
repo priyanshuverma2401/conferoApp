@@ -73,10 +73,17 @@ function registerGlobalIpc() {
 
 // Onboarding-only IPC: open the browser sign-in and wait for the token handoff.
 function registerOnboardingIpc() {
-  ipcMain.handle('onboarding:start-signin', async () => {
+  ipcMain.handle('onboarding:start-signin', async (event) => {
     try {
       const backendUrl = resolveBackendUrl();
-      const { token } = await startSignin({ backendUrl });
+      const { token } = await startSignin({
+        backendUrl,
+        // Waking a cold free-tier host can take half a minute; without a word
+        // from us the button just sits there and reads as broken.
+        onStatus: (text) => {
+          if (!event.sender.isDestroyed()) event.sender.send('signin:status', { text });
+        },
+      });
       sessionStore.saveSession({ token });
       return { ok: true };
     } catch (err) {
@@ -228,7 +235,13 @@ function startMainApp() {
     const headers = { Authorization: `Bearer ${token}` };
     try {
       const r = await fetch(`${config.backendUrl}/api/me`, { headers });
-      if (r.ok) appState.plan = (await r.json()).plan || 'free';
+      if (r.ok) {
+        const me = await r.json();
+        appState.plan = me.plan || 'free';
+        // Cached so Settings can name the signed-in account without a second
+        // round trip — and so it still shows when the app is offline.
+        if (me.email) sessionStore.saveSession({ token, email: me.email });
+      }
     } catch (_) { /* offline — stay on free defaults */ }
     try {
       const r = await fetch(`${config.backendUrl}/api/modes`, { headers });
@@ -237,7 +250,45 @@ function startMainApp() {
     send('account:plan', { plan: appState.plan });
   })();
 
-  ipcMain.handle('account:get', () => ({ plan: appState.plan }));
+  ipcMain.handle('account:get', () => ({ plan: appState.plan, email: sessionStore.getEmail() }));
+
+  // Sign out. Whatever this session captured is archived FIRST — the transcript
+  // only lives in memory until something writes it, so dropping the token
+  // without saving would throw the user's work away. Stopping the microphone is
+  // the renderer's job (it owns the audio graph) and it does that before
+  // calling this, exactly as "End session" does.
+  //
+  // Then relaunch: unwinding a running app back to the onboarding window by
+  // hand means undoing timers, capture state, appState and every window, and
+  // anything missed leaks into the next account. A relaunch has no such holes.
+  ipcMain.handle('auth:sign-out', async () => {
+    try {
+      const settings = userSettingsStore.getCachedSettings();
+      const mode = getMode(settings.activeMode);
+      if (!appState.archivedAt && (appState.transcript.length || appState.sessionAnswers.length)) {
+        try {
+          await sessionsArchive.archiveSession({
+            transcript: appState.transcript,
+            answers: appState.sessionAnswers,
+            modeId: settings.activeMode,
+            modeLabel: mode ? mode.label : '',
+            modeContext: settings.modeContext && settings.modeContext[settings.activeMode],
+            docFileName: (settings.documentContext && settings.documentContext[settings.activeMode] || {}).fileName,
+            summary: appState.sessionSummary,
+          });
+        } catch (err) {
+          console.error('[auth] archive before sign-out failed:', err.message);
+        }
+      }
+      qaLog.log('sign_out', {});
+      sessionStore.clear();
+      app.relaunch();
+      app.exit(0);
+      return { ok: true };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
 
   // Start the upgrade: ask the backend for a PayPal approval URL, open it in the
   // user's browser, then poll /api/me so the app flips to premium on its own the

@@ -1109,11 +1109,17 @@ startBtn.addEventListener('click', async () => {
   else proceed();
 });
 
-stopBtn.addEventListener('click', async () => {
+async function stopListening() {
+  if (!isCapturing) return;
   window.audioCapture.stopAudioCapture();
   await window.stealthAPI.stopCapture();
   setCapturingUi(false);
-});
+}
+stopBtn.addEventListener('click', stopListening);
+// settingsPanel.js runs in the same window but a separate script; Sign out has
+// to release the microphone before main relaunches, and only this file owns the
+// audio graph.
+window.__conferoStopCapture = stopListening;
 
 // Answer now: the user's override — skip the settle window, answer immediately.
 let helpBtnTimer = null;

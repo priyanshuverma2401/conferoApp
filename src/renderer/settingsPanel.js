@@ -223,3 +223,54 @@ removeDocumentBtn.addEventListener('click', async () => {
     removeDocumentBtn.disabled = false;
   }
 });
+
+// ── Account / sign out ──
+// Sign out relaunches the app into the sign-in window, so it gets a confirm
+// step: a mis-click here ends the session, and the only way back is logging in
+// again. The email comes from the cached /api/me response, so it still shows
+// offline; without it the row just says "Signed in" rather than lying.
+(function initAccount() {
+  const emailEl = document.getElementById('accountEmail');
+  const planEl = document.getElementById('accountPlan');
+  const btn = document.getElementById('signOutBtn');
+  const confirm = document.getElementById('signOutConfirm');
+  const cancel = document.getElementById('signOutCancel');
+  const go = document.getElementById('signOutGo');
+  if (!btn) return;
+
+  window.stealthAPI.getAccount().then((acct) => {
+    if (acct && acct.email) emailEl.textContent = acct.email;
+    if (acct && acct.plan) planEl.textContent = acct.plan === 'premium' ? 'Premium' : 'Free plan';
+  }).catch(() => { /* the row's defaults already read correctly */ });
+
+  btn.addEventListener('click', () => {
+    confirm.classList.remove('hidden');
+    btn.classList.add('hidden');
+    // The account row is the last thing in a scrolling panel, so the confirm
+    // opens below the fold — without this the click looks like it did nothing.
+    confirm.scrollIntoView({ block: 'nearest' });
+  });
+  cancel.addEventListener('click', () => {
+    confirm.classList.add('hidden');
+    btn.classList.remove('hidden');
+  });
+
+  go.addEventListener('click', async () => {
+    go.disabled = true;
+    cancel.disabled = true;
+    go.textContent = 'Signing out…';
+    try {
+      // Stop the microphone the same way "End session" does — main archives the
+      // transcript, but it can't tear down the renderer's audio graph.
+      if (window.__conferoStopCapture) await window.__conferoStopCapture();
+      const res = await window.stealthAPI.signOut();
+      // A successful sign-out relaunches, so reaching here means it failed.
+      if (res && res.error) throw new Error(res.error);
+    } catch (err) {
+      go.disabled = false;
+      cancel.disabled = false;
+      go.textContent = 'Sign out';
+      setStatus(`Couldn't sign out: ${err.message}`);
+    }
+  });
+}());

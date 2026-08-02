@@ -452,6 +452,24 @@
         </div>
 
         <div id="settingsStatus" class="settings-status"></div>
+
+        <!-- Account, last: signing out is the one action here you can't undo by
+             clicking again, so it sits at the bottom behind a confirm step. -->
+        <label class="settings-label">Account</label>
+        <div class="account-row">
+          <div class="account-who">
+            <div id="accountEmail" class="account-email">Signed in</div>
+            <div id="accountPlan" class="account-plan"></div>
+          </div>
+          <button id="signOutBtn" class="signout-btn">Sign out</button>
+        </div>
+        <p id="signOutConfirm" class="signout-confirm hidden">
+          <span>Sign out and close this session? Anything captured is saved to Past sessions first.</span>
+          <span class="signout-actions">
+            <button id="signOutCancel" class="signout-cancel">Cancel</button>
+            <button id="signOutGo" class="signout-go">Sign out</button>
+          </span>
+        </p>
       </div>
     </div>
   </div>

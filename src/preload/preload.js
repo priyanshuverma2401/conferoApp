@@ -69,6 +69,12 @@ contextBridge.exposeInMainWorld('stealthAPI', {
 
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   startSignin: () => ipcRenderer.invoke('onboarding:start-signin'),
+  // Progress while a sleeping backend wakes up, before the browser is opened.
+  onSigninStatus: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('signin:status', listener);
+    return () => ipcRenderer.removeListener('signin:status', listener);
+  },
   completeOnboarding: () => ipcRenderer.invoke('onboarding:complete'),
 
   helpNow: () => ipcRenderer.invoke('assist:help-now'),
@@ -102,6 +108,9 @@ contextBridge.exposeInMainWorld('stealthAPI', {
   setModel: (provider) => ipcRenderer.invoke('model:set', provider),
   getAccount: () => ipcRenderer.invoke('account:get'),
   startUpgrade: () => ipcRenderer.invoke('billing:start-upgrade'),
+  // Archives the current session, clears the token, then relaunches into
+  // sign-in. Stop capture before calling — the renderer owns the audio graph.
+  signOut: () => ipcRenderer.invoke('auth:sign-out'),
   onPlanChanged: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('account:plan', listener);

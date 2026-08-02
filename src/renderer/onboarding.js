@@ -55,6 +55,14 @@ function setStatus(text, kind) {
   signinStatus.className = `key-status ${kind || ''}`;
 }
 
+// Main reports "Waking the server…" while it absorbs a sleeping backend's cold
+// start, so the browser only opens once the real sign-in page will answer.
+window.stealthAPI.onSigninStatus(({ text }) => {
+  if (!text) return;
+  signinBtn.textContent = text;
+  setStatus('The server was asleep — giving it a moment so sign-in opens properly.', '');
+});
+
 signinBtn.addEventListener('click', async () => {
   signinBtn.disabled = true;
   signinBtn.textContent = 'Waiting for browser...';
