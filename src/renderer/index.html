@@ -134,7 +134,9 @@
 
     <!-- One-line live ticker (focus mode): last thing said; tap to peek at the full feed -->
     <button id="ticker" class="ticker" title="Show full transcript">
-      <span class="ticker-dot"></span>
+      <!-- Live input meter, not a blinking dot: bars that keep moving read as
+           "it's hearing you"; a blink reads as an alert you should act on. -->
+      <span class="ticker-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
       <span id="tickerText">Listening…</span>
       <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
     </button>
