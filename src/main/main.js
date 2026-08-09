@@ -643,9 +643,20 @@ function startMainApp() {
             qaLog.log('transcript_bleed', { text: qaLog.preview(text) });
           } else {
             const readBack = source === 'mic' && isReadBack(text);
-            // Only THEIR voice asks questions — except in solo practice (mic
-            // only, no system audio yet), where the mic is all we have.
-            const canTrigger = source === 'system' || !appState.sawSystemAudio;
+            // Only THEIR voice asks questions. The mic is the CANDIDATE: what
+            // they say is CONTEXT (it still lands in the transcript and in
+            // candidateNotes, so a follow-up about a project they mentioned is
+            // grounded) but it must never be answered back at them.
+            // This used to fall through to `|| !appState.sawSystemAudio` so a
+            // mic-only session could still work. That escape hatch is open
+            // whenever loopback capture yields nothing — which, measured over
+            // real sessions, is most of the time (693 mic lines vs 17 system) —
+            // and the visible result is the co-pilot answering the candidate's
+            // own words mid-interview. A silent capture failure must degrade to
+            // "no answers", never to "answers the wrong person".
+            // Solo practice isn't lost: the Ask bar and "Answer now" both run
+            // the pipeline directly; they just no longer fire on their own.
+            const canTrigger = source === 'system';
             const isQuestion = !readBack && canTrigger && looksLikeQuestion(text);
             const payload = { source, text, timestamp: Date.now(), readBack, isQuestion };
             appState.transcript.push(payload);

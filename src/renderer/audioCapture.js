@@ -6,6 +6,18 @@
 
 const TARGET_SAMPLE_RATE = 16000;
 
+// Confero listens to the INTERVIEWER, not the candidate. The candidate's own
+// mic was captured and transcribed too, which cost three things and bought one:
+//   - every mic utterance was a second Whisper round trip, doubling the request
+//     volume on one shared key and slowing the transcript the user actually
+//     waits on (the interviewer's)
+//   - without headphones the interviewer bleeds INTO the mic, so their words
+//     arrived a second time tagged as the candidate
+//   - the candidate's own words appeared in the transcript they're reading live
+// What it bought was `candidateNotes()` grounding — worth having, but not at the
+// cost of the interviewer's line arriving late. Flip this to true to restore it.
+const CAPTURE_CANDIDATE_MIC = false;
+
 const captureState = {
   system: null,
   mic: null,
@@ -94,7 +106,10 @@ async function startAudioCapture() {
     minUtteranceMs: cfg.minUtteranceMs,
   };
   await startSystemAudioCapture(vadConfig);
-  await startMicCapture(vadConfig);
+  // Skipped by default — see CAPTURE_CANDIDATE_MIC. Not capturing at all (rather
+  // than capturing and discarding) is what actually saves the latency: no PCM
+  // frames, no IPC, no WAV write, no transcription call.
+  if (CAPTURE_CANDIDATE_MIC) await startMicCapture(vadConfig);
 }
 
 function stopAudioCapture() {

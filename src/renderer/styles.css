@@ -766,6 +766,26 @@ body.collapsed .hb-ic-expand { display: block; }
   grid-column: 2; font-size: var(--answer-size, 15px); font-weight: var(--answer-weight, 680);
   line-height: 1.5; color: var(--answer-color); font-family: var(--answer-font); margin-top: 1px;
 }
+/* A section that holds several bullets: the dots live on the <li>s, so the
+   block's own column-1 dot is suppressed and the label becomes the section
+   heading instead of a bullet's caption. */
+.ans-block--bullets::before { content: ''; }
+.ans-block--bullets .ab-label {
+  text-transform: uppercase; letter-spacing: .06em; font-size: 10.5px;
+}
+.ans-block .ab-bullets {
+  grid-column: 2; margin: 3px 0 0; padding: 0; list-style: none;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.ans-block .ab-bullets li {
+  position: relative; padding-left: 14px;
+  font-size: var(--answer-size, 15px); font-weight: var(--answer-weight, 680);
+  line-height: 1.45; color: var(--answer-color); font-family: var(--answer-font);
+}
+.ans-block .ab-bullets li::before {
+  content: '•'; position: absolute; left: 0; top: 0;
+  color: var(--accent); font-size: 15px; line-height: 1.45;
+}
 .ans-block:nth-child(1) { animation-delay: 0ms; }
 .ans-block:nth-child(2) { animation-delay: 90ms; }
 .ans-block:nth-child(3) { animation-delay: 180ms; }
@@ -786,6 +806,7 @@ body.collapsed .hb-ic-expand { display: block; }
 
 /* Feed cards (free tier + history) reuse the same bullet look, one step smaller */
 .suggestion .ans-block .ab-say { font-size: calc(var(--answer-size, 15px) - 1.5px); font-weight: var(--answer-weight, 650); }
+.suggestion .ans-block .ab-bullets li { font-size: calc(var(--answer-size, 15px) - 1.5px); font-weight: var(--answer-weight, 650); }
 
 /* Answer display controls (Settings) */
 .answer-display-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

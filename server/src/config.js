@@ -1,6 +1,16 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
+// Groq keys from either variable name, each of which may itself be a
+// comma-separated list. Order is preserved (first key wins as the default) and
+// duplicates are dropped, so listing a key in both variables is harmless.
+const GROQ_KEYS = [
+  ...(process.env.GROQ_API_KEYS || '').split(','),
+  ...(process.env.GROQ_API_KEY || '').split(','),
+]
+  .map((s) => s.trim())
+  .filter((v, i, a) => v && a.indexOf(v) === i);
+
 const config = {
   port: Number(process.env.PORT || 8787),
   jwtSecret: process.env.JWT_SECRET || 'dev-insecure-secret-change-me',
@@ -32,7 +42,22 @@ const config = {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
 
-  groqApiKey: process.env.GROQ_API_KEY || '',
+  // Pool of Groq keys, rotated on 429 so a throttled key costs a round trip
+  // rather than the answer. Used by CHAT and TRANSCRIPTION; vision/OCR stays on a
+  // single key (groqApiKey below), since a Snip is rare and user-initiated and
+  // isn't what drains a quota.
+  // BOTH names are accepted and BOTH split on commas — GROQ_API_KEYS=a,b,c is the
+  // documented form, but writing the list into the existing GROQ_API_KEY is the
+  // obvious thing to try, and silently treating "a,b,c" as one key means every
+  // request 401s with nothing explaining why.
+  // NOTE, same caveat as the Gemini pool below: Groq enforces rate limits per
+  // ACCOUNT, so extra keys minted inside one account share one bucket and add no
+  // capacity. A pool only helps if the keys belong to separate accounts.
+  groqApiKeys: GROQ_KEYS,
+  // The first pooled key — what the non-rotating callers (vision) use. Derived
+  // rather than read raw, or a comma-separated GROQ_API_KEY would be handed to
+  // them verbatim as a single bogus key.
+  groqApiKey: GROQ_KEYS[0] || '',
   groqSttModel: process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo',
   groqChatModel: process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant',
   // Multimodal model for OCR/text-extraction from a snipped screen region. Groq's

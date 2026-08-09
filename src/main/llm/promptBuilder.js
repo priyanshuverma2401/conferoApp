@@ -98,7 +98,9 @@ function buildHelpNowPrompt({ transcriptWindow, documentContext, modeContext }) 
 // ── Question-triggered answer pipeline ──────────────────────────────────────
 // The output is read ALOUD in a live conversation — these rules are what keep
 // it from sounding like someone reciting text off a screen.
-const SPOKEN_STYLE = `Write exactly how a confident person talks out loud: contractions, short one-breath sentences, plain words. No markdown symbols, no labels, no numbering — only speakable text.`;
+const SPOKEN_STYLE = `Write exactly how a confident person talks out loud: contractions, short one-breath sentences, plain words. No markdown symbols, no labels, no numbering — only speakable text.
+
+Tone is a professional in a meeting, not a lecturer. Lead with the answer, then the evidence. Concrete nouns, numbers and outcomes over theory. Never open by defining the term, restating the question, or setting up context ("Great question", "As we know", "In the context of...", "It is important to note"). No textbook phrasing, no "firstly/secondly/moreover/thus", no hedging stacks ("it could arguably be said"). Say "we shipped it in six weeks", not "the implementation was subsequently undertaken".`;
 
 // Adaptive follow-up threading: carrying the previous Q+A is what stops a
 // probing follow-up from getting a reworded repeat of the first answer.
@@ -245,9 +247,27 @@ function buildAnswerPrompt({ question, rawSpeech, asks, transcriptWindow, candid
     ? `Give me exactly ${asks.length} blocks — one per numbered question above, in that order. Name each block after the question it answers. Format each block as exactly two lines:
 LABEL: a short cue of 2 to 6 words naming that question — e.g. "What SOLID is", "How we tested it", "What I'd change"
 SAY: the exact words to speak for THAT question — specific, grounded ONLY in my background above, one to three short sentences`
-    : `Give me what to say, as 3 or 4 labeled blocks. The FIRST block is the main answer to say right now; the rest cover the natural follow-up, a stronger version, or how to go deeper if pushed. Format each block as exactly two lines:
-LABEL: a short cue of 2 to 6 words — e.g. "Say this", "My role", "Stronger version", "If they push deeper"
-SAY: the exact words to speak — specific, grounded ONLY in my background above, one to three short sentences`;
+    : `Give me EXACTLY these three blocks, in this order, with these exact labels and these exact bullet counts. Every bullet is its own SAY line:
+
+LABEL: Say this
+SAY: <bullet 1 — the direct answer to what they asked>
+SAY: <bullet 2>
+SAY: <bullet 3>
+LABEL: Say it differently
+SAY: <bullet 1 — the SAME answer, said another way>
+SAY: <bullet 2>
+SAY: <bullet 3>
+LABEL: My role
+SAY: <bullet 1 — what I personally did that is relevant to THIS question>
+SAY: <bullet 2>
+
+Rules for those blocks:
+- "Say this" answers the question ITSELF, straight away. First bullet = the answer, not a wind-up. No defining of terms, no history, no "it depends" — say the thing.
+- "Say it differently" is the same substance in different words, for when the first phrasing doesn't land or they ask me to repeat. It is a REPHRASE, not the next point and not a deeper level — do not put new facts here that "Say this" left out.
+- "My role" is about ME and about THIS question: what I actually owned, built or decided that makes me credible on it. Ground it only in my background above. If my background genuinely does not touch this topic, say what is closest and honest ("I haven't owned this directly, but I did X") — never invent experience.
+- COUNT THE LINES BEFORE YOU FINISH. "Say this" must have 3 SAY lines. "Say it differently" must have 3 SAY lines. "My role" must have 2 SAY lines. Eight SAY lines in total. Two is wrong. Four is wrong.
+- One idea per bullet, one breath each, roughly 8 to 22 words.
+- Every bullet is its own line starting with "SAY: ". Never put two bullets on one SAY line, never write a dash list inside a SAY line, never leave a SAY line out because the point feels covered — if you are short of a third bullet, add the concrete detail (a number, a tool, a result) you would have left out.`;
 
   return `${contextBlocks({ modeContext, documentContext })}${candidateNotesBlock(candidateNotes)}${threadClause(prevQA, typedKind)}${convo}${askedBlock({ question, rawSpeech, typedKind })}
 ${multi ? asksList(asks) : ''}

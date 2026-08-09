@@ -204,7 +204,10 @@ function appendSuggestion({ text, kind }) {
 
 // The labels our prompt asks for — used to recover structure when a weaker
 // model jams everything onto one line instead of using clean LABEL/SAY lines.
-const KNOWN_LABELS = 'Say this|My role|Stronger version|Short human explanation|Add this stronger line|If they ask your role|If they push deeper|If pushed|If they probe|Then your role|A more polished version';
+// Longest-first within a shared prefix: "Say it differently" must be tried
+// before "Say this" would ever be considered, or a partial match wins and the
+// label is cut in half.
+const KNOWN_LABELS = 'Say it differently|Say this|My role|Stronger version|Short human explanation|Add this stronger line|If they ask your role|If they push deeper|If pushed|If they probe|Then your role|A more polished version';
 
 function splitInline(text, labelRe) {
   const matches = [...text.matchAll(labelRe)];
@@ -214,20 +217,48 @@ function splitInline(text, labelRe) {
     const start = matches[i].index + matches[i][0].length;
     const end = i + 1 < matches.length ? matches[i + 1].index : text.length;
     const line = text.slice(start, end).trim().replace(/^["']|["']$/g, '').trim();
-    if (line) out.push({ cue: matches[i][1].trim(), line });
+    if (line) out.push({ cue: matches[i][1].trim(), lines: sectionLines(line) });
   }
   return out.length >= 2 ? out : null;
 }
 
+// A recovered section is one run of raw text, and when the model wrote a real
+// list inside it ("- point\n- point") that run holds every bullet at once.
+// Observed live on llama-3.1-8b: it kept the section headings but dropped the
+// SAY: scaffolding, so all three bullets arrived as a single blob and rendered
+// as one paragraph with dashes in it. Split them back apart.
+function sectionLines(text) {
+  const parts = text
+    .split(/\r?\n+/)
+    .map((s) => s.replace(/^\s*(?:[-•*]|\d+[.)])\s+/, '').trim())
+    .filter(Boolean);
+  if (parts.length > 1) return parts;
+  // Single physical line that still carries inline bullets. Require sentence
+  // punctuation before the marker so prose like "the client - who joined late -
+  // agreed" is never torn in half.
+  const inline = text.split(/(?<=[.;:!?])\s+[-•*]\s+/).map((s) => s.replace(/^\s*[-•*]\s+/, '').trim()).filter(Boolean);
+  return inline.length > 1 ? inline : [text];
+}
+
 function parseBeats(text) {
   const beats = [];
-  let cue = null;
+  let cur = null;
   for (const raw of text.split(/\r?\n/)) {
     const c = raw.match(/^\s*(?:CUE|LABEL):\s*(.+)$/i);
     const l = raw.match(/^\s*(?:LINE|SAY):\s*(.+)$/i);
-    if (c) cue = c[1].trim();
-    else if (l && cue) { beats.push({ cue, line: l[1].trim() }); cue = null; }
+    // A label opens a section and CONSECUTIVE SAY lines fill it, so one section
+    // can carry several bullets. Previously a label was cleared by the first SAY,
+    // which capped every section at one line and silently dropped bullets 2 and 3.
+    if (c) { cur = { cue: c[1].trim(), lines: [] }; beats.push(cur); }
+    else if (l && cur) cur.lines.push(l[1].trim());
+    // A bare "- bullet" under an open label (weak models drop the SAY: scaffold
+    // once they're already emitting a list) counts as another bullet.
+    else if (cur && cur.lines.length && /^\s*[-•*]\s+\S/.test(raw)) {
+      cur.lines.push(raw.replace(/^\s*[-•*]\s+/, '').trim());
+    }
   }
+  // A label with no lines at all is scaffolding the model left behind.
+  for (let i = beats.length - 1; i >= 0; i--) if (!beats[i].lines.length) beats.splice(i, 1);
   if (beats.length) return beats;
   // Inline fallbacks, most reliable first: our known labels, the same labels
   // sitting on their own line WITHOUT the colon (weak models drop the "LABEL:"
@@ -247,12 +278,28 @@ function parseBeats(text) {
 // Cluely-style bullets: a short label, then the exact words to speak in bold.
 function ansBlocksHtml(blocks) {
   return blocks
-    .map((b) => `<div class="ans-block"><span class="ab-label">${escapeHtml(b.cue)}</span><span class="ab-say">${escapeHtml(b.line)}</span></div>`)
+    .map((b) => {
+      // One line keeps the original single-span shape — that's what a multi-part
+      // answer and the "Take 2" rephrase still emit, and they should not change
+      // appearance. Several lines render as real bullets.
+      const multi = b.lines.length > 1;
+      const body = multi
+        ? `<ul class="ab-bullets">${b.lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`
+        : `<span class="ab-say">${escapeHtml(b.lines[0] || '')}</span>`;
+      // The block already draws its own dot in column 1; a bulleted section
+      // carries dots on the <li>s instead, so the class turns the outer one off.
+      return `<div class="ans-block${multi ? ' ans-block--bullets' : ''}"><span class="ab-label">${escapeHtml(b.cue)}</span>${body}</div>`;
+    })
     .join('');
+}
+// Everything the candidate would actually say, label scaffolding stripped — used
+// for the rephrase source and the saved-session preview.
+function beatsText(beats) {
+  return beats.reduce((acc, b) => acc.concat(b.lines), []).join(' ');
 }
 function substanceOf(text) {
   const beats = parseBeats(text);
-  return beats ? beats.map((b) => b.line).join(' ') : text;
+  return beats ? beatsText(beats) : text;
 }
 // DSA / System-Design answers are a rough scratchpad + fenced code, not speakable
 // bullets. Render prose lines as-is and each ```code``` block as a monospace <pre>
@@ -315,7 +362,11 @@ function stripNote(text) {
 function toBlocks(text) {
   const body = stripNote(text);
   let blocks = parseBeats(body) || parseBeats(text);
-  if (blocks) blocks = blocks.filter((b) => b.line && b.line.trim());
+  if (blocks) {
+    blocks = blocks
+      .map((b) => ({ ...b, lines: b.lines.filter((l) => l && l.trim()) }))
+      .filter((b) => b.lines.length);
+  }
   if (!blocks || !blocks.length) {
     const fallback = (body || text).replace(/^\s*(?:LABEL|SAY|CUE|LINE|NOTE):\s*/i, '').trim();
     blocks = [{ cue: 'Say this', line: fallback }];
@@ -401,7 +452,7 @@ function renderAnswer({ question, text, ms, adaptiveUpsell, provider, detail, fo
   const codeMode = isCodeAnswer(text, format);
   const blocks = codeMode ? null : toBlocks(text);
   const answerHtml = codeMode ? renderCodeAnswer(text) : ansBlocksHtml(blocks);
-  lastAnswerSubstance = codeMode ? stripNote(text).trim() : blocks.map((b) => b.line).join(' ');
+  lastAnswerSubstance = codeMode ? stripNote(text).trim() : beatsText(blocks);
   // "which model" indicator (testing only): a colour-coded chip in the sticky
   // top row + the latency in the foot. e.g. chip "Gemini · flash · key 3/15".
   if (SHOW_MODEL_BADGE && provider) {
@@ -539,7 +590,7 @@ stageDiff.addEventListener('click', async () => {
   stageDiff.disabled = true;
   stageDiff.textContent = 'Rewording…';
   const out = await requestRephrase(lastAnswerSubstance, (text) => {
-    stageAnswer.innerHTML = ansBlocksHtml([{ cue: 'Take 2', line: text }]);
+    stageAnswer.innerHTML = ansBlocksHtml([{ cue: 'Take 2', lines: [text] }]);
   });
   if (out) lastAnswerSubstance = out;
   stageDiff.disabled = false;

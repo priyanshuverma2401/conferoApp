@@ -1,4 +1,5 @@
 const config = require('../config');
+const { withGroqKey, throttled } = require('./groqKeys');
 
 // ── One chat interface, every major provider wired, with automatic failover ──
 // proxy.js calls chat(messages). It tries the primary provider (CHAT_PROVIDER)
@@ -153,7 +154,14 @@ async function openAiCompatible({ url, apiKey, model, extraHeaders = {} }, messa
 }
 
 // ── OpenAI-dialect providers ────────────────────────────────────────────────
-const groq = (m) => openAiCompatible({ url: 'https://api.groq.com/openai/v1/chat/completions', apiKey: config.groqApiKey, model: config.groqChatModel }, m);
+// Rotated across the GROQ_API_KEYS pool: a 429 benches that key and the next one
+// answers the SAME request, so a throttled key costs a round trip rather than the
+// answer. Only a 429 rotates — any other failure is the model or the request, and
+// re-sending it on four keys would just delay the error by four round trips.
+const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const groq = (m) => withGroqKey((key) =>
+  openAiCompatible({ url: GROQ_CHAT_URL, apiKey: key, model: config.groqChatModel }, m)
+    .catch((err) => { throw /\(429\)/.test(err.message) ? throttled(err.message) : err; }));
 const openrouter = (m) => openAiCompatible({ url: 'https://openrouter.ai/api/v1/chat/completions', apiKey: config.openrouterApiKey, model: config.openrouterModel }, m);
 // Qwen3-Coder via OpenRouter's free tier — a purpose-built coding model, the
 // best free option for DSA / algorithmic problems (DSA mode's preferred default).
@@ -289,7 +297,9 @@ function upstream(name, res) {
 // Registry: each provider has a runner and a `ready` check (has its key set).
 // `ready` lets failover skip any backup that isn't actually configured.
 const PROVIDERS = {
-  groq: { run: groq, ready: () => Boolean(config.groqApiKey) },
+  // Ready if ANY pooled key exists — GROQ_API_KEYS alone is enough, so the plain
+  // GROQ_API_KEY is no longer required for chat to be considered configured.
+  groq: { run: groq, ready: () => config.groqApiKeys.length > 0 },
   gemini: { run: gemini, ready: () => Boolean(config.geminiApiKey) },
   openrouter: { run: openrouter, ready: () => Boolean(config.openrouterApiKey) },
   qwencoder: { run: qwencoder, ready: () => Boolean(config.openrouterApiKey) },

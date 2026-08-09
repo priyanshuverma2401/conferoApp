@@ -3,6 +3,7 @@ const multer = require('multer');
 const config = require('./config');
 const { requireAuth } = require('./auth');
 const { chat, extractText } = require('./ai/chat');
+const { withGroqKey, throttled } = require('./ai/groqKeys');
 const { MODES } = require('./modes');
 
 // Ids of premium-only modes, derived from the mode table so adding `premium:true`
@@ -46,7 +47,7 @@ function clampSttPrompt(prompt) {
 // transcription or looks like an app hang.
 const STT_FALLBACK_MODEL = 'whisper-large-v3-turbo';
 
-async function callGroqTranscribe(model, fileBuffer, originalname, prompt) {
+async function callGroqTranscribe(model, fileBuffer, originalname, prompt, apiKey) {
   const form = new FormData();
   form.append('file', new Blob([fileBuffer], { type: 'audio/wav' }), originalname || 'chunk.wav');
   form.append('model', model);
@@ -58,9 +59,31 @@ async function callGroqTranscribe(model, fileBuffer, originalname, prompt) {
   if (prompt) form.append('prompt', prompt);
   return fetch(GROQ_TRANSCRIBE_URL, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${config.groqApiKey}` },
+    headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
   });
+}
+
+// Same call, rotated across the GROQ_API_KEYS pool. Transcription is the heaviest
+// consumer of the quota (a request every few seconds, all session), so it is
+// where a second key earns its keep.
+// Only a 429 moves to the next key. Every other status is RETURNED, not thrown,
+// so the model-fallback below still sees it and can retry on turbo exactly as it
+// did before — key rotation and model fallback stay independent.
+// If all keys are throttled the last 429 Response is handed back rather than
+// thrown, so the caller's existing !ok branch reports it unchanged.
+async function transcribeRotating(model, fileBuffer, originalname, prompt) {
+  let last = null;
+  try {
+    return await withGroqKey(async (key) => {
+      const res = await callGroqTranscribe(model, fileBuffer, originalname, prompt, key);
+      if (res.status === 429) { last = res; throw throttled(`Groq transcription rate limited (429)`); }
+      return res;
+    });
+  } catch (err) {
+    if (last) return last;
+    throw err;
+  }
 }
 
 // Transcribe: the desktop app uploads a short WAV chunk; we forward it to Groq
@@ -74,13 +97,13 @@ router.post('/transcribe', requireAuth, upload.single('file'), async (req, res) 
   const prompt = clampSttPrompt(req.body.prompt);
   try {
     let usedModel = primary;
-    let groqRes = await callGroqTranscribe(primary, req.file.buffer, req.file.originalname, prompt);
+    let groqRes = await transcribeRotating(primary, req.file.buffer, req.file.originalname, prompt);
 
     if (!groqRes.ok && primary !== STT_FALLBACK_MODEL) {
       const detail = await groqRes.text().catch(() => '');
       console.warn(`[transcribe] "${primary}" failed (${groqRes.status}) — retrying with "${STT_FALLBACK_MODEL}": ${detail.slice(0, 200)}`);
       usedModel = STT_FALLBACK_MODEL;
-      groqRes = await callGroqTranscribe(STT_FALLBACK_MODEL, req.file.buffer, req.file.originalname, prompt);
+      groqRes = await transcribeRotating(STT_FALLBACK_MODEL, req.file.buffer, req.file.originalname, prompt);
     }
 
     if (!groqRes.ok) {
