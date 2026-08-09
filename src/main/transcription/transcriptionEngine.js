@@ -5,13 +5,22 @@ const vocabularyBank = require('./vocabularyBank');
 
 // Provider-agnostic transcription interface. 'backend' (default) routes through
 // Confero's server; 'groq' is the direct/BYOK dev path.
+// Groq 400s on a Whisper prompt over 896 CHARACTERS, and since the hint is built
+// the same way for every chunk, going over doesn't cost one chunk — it kills the
+// whole session. The old cap here was 950, which a mode context plus an attached
+// résumé summary reached easily (~944), so transcription died the moment a user
+// uploaded a CV. Sit under the real limit rather than on it: the server clamps at
+// 896 as a backstop, and this leaves room so that backstop stays a backstop.
+const HINT_MAX_CHARS = 850;
+
 function createTranscriptionEngine(config) {
   // Whisper's `prompt` biases transcription toward the terms it contains — so
   // alongside the explicit vocabulary hints, feed it the active mode's session
   // context (job description, lesson topic...). A term like "Fenergo" that
   // appears there gets transcribed correctly at the source instead of arriving
-  // as "Fenegrou" and needing a downstream correction. Capped well under
-  // Whisper's ~224-token prompt limit.
+  // as "Fenegrou" and needing a downstream correction. Capped under Groq's hard
+  // limit — see HINT_MAX_CHARS below; it counts CHARACTERS, not the ~224 TOKENS
+  // Whisper's prompt limit is usually quoted as.
   // Whisper ECHOES leading title-like tokens from its prompt into the output —
   // a markdown header like "**Background**" at the top of a doc summary comes
   // back glued to the front of the very next utterance ("**Background** So,
@@ -71,7 +80,8 @@ function createTranscriptionEngine(config) {
 
     // Order by value: the user's own rare proper nouns first, then the curated
     // domain keywords, then trimmed slices of their context/doc for anything the
-    // bank didn't cover. Whole thing stays under Whisper's ~224-token limit.
+    // bank didn't cover — so if the cap does bite, it costs the least-valuable
+    // tail rather than the user's own terms.
     const combined = [
       flatten(settings.vocabularyHints),
       keywordHint,
@@ -80,7 +90,7 @@ function createTranscriptionEngine(config) {
     ]
       .filter(Boolean)
       .join('. ');
-    return combined ? combined.slice(0, 950) : null;
+    return combined ? combined.slice(0, HINT_MAX_CHARS) : null;
   };
 
   if (config.transcriptionProvider === 'backend') {

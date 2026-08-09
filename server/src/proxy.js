@@ -16,6 +16,30 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 const router = express.Router();
 
 const GROQ_TRANSCRIBE_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
+// Groq rejects a Whisper `prompt` over 896 CHARACTERS (not tokens, which is what
+// Whisper's own ~224-token limit is usually quoted as) with a hard 400. The turbo
+// retry below resends the SAME prompt, so an oversized hint fails both attempts —
+// and because the hint is rebuilt identically for every chunk, that isn't one bad
+// chunk, it's the whole session transcribing nothing. Observed in the wild once a
+// user attached a resume: the doc summary pushed the hint past the cap and every
+// chunk came back "Transcription upstream error (400)".
+// The app caps its own hint, but an INSTALLED build carries whatever cap it
+// shipped with, so the ceiling is enforced here too — a stale client can't take a
+// user's session down, and no reinstall is needed to fix one.
+const MAX_STT_PROMPT_CHARS = 896;
+
+// Trim at a separator so the hint doesn't end mid-word (a half word biases
+// Whisper toward nonsense), but only if that separator is near the end —
+// otherwise we'd throw away most of the budget, and the front of the hint is the
+// valuable part (the user's own proper nouns come first).
+function clampSttPrompt(prompt) {
+  if (typeof prompt !== 'string' || prompt.length <= MAX_STT_PROMPT_CHARS) return prompt;
+  const cut = prompt.slice(0, MAX_STT_PROMPT_CHARS);
+  const brk = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf(', '), cut.lastIndexOf(' '));
+  const trimmed = (brk > MAX_STT_PROMPT_CHARS * 0.8 ? cut.slice(0, brk) : cut).trim();
+  console.warn(`[transcribe] hint ${prompt.length} chars > ${MAX_STT_PROMPT_CHARS} — trimmed to ${trimmed.length}`);
+  return trimmed;
+}
 // whisper-large-v3 is the most accurate model but has been seen to fail
 // transiently (observed HTTP 400 for a stretch one evening); large-v3-turbo is
 // a fast, reliable safety net so a transient primary failure never breaks
@@ -47,7 +71,7 @@ router.post('/transcribe', requireAuth, upload.single('file'), async (req, res) 
   if (!req.file) return res.status(400).json({ error: 'No audio file provided.' });
 
   const primary = config.groqSttModel;
-  const prompt = req.body.prompt;
+  const prompt = clampSttPrompt(req.body.prompt);
   try {
     let usedModel = primary;
     let groqRes = await callGroqTranscribe(primary, req.file.buffer, req.file.originalname, prompt);
